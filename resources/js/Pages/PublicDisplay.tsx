@@ -1,173 +1,131 @@
 import Header from "../Components/Header.tsx";
 import QueueCard from "../Components/QueueCard.tsx";
 import Ticker from "../Components/Ticker.tsx";
-import { Clock3, MonitorSmartphone, Users, Volume2 } from "lucide-react";
+import { RotateCcw } from "lucide-react";
 
 export default function PublicDisplay() {
-  const history = [
-    { id: "A-242", layanan: "Paspor", loket: "3", waktu: "09:32" },
-    { id: "C-087", layanan: "Status & Izin Tinggal", loket: "6", waktu: "09:28" },
-    { id: "B-011", layanan: "Customer Service", loket: "CS 2", waktu: "09:24" },
-    { id: "R-004", layanan: "Ramah HAM", loket: "1", waktu: "09:18" },
-    { id: "A-241", layanan: "Paspor", loket: "4", waktu: "09:15" },
+  const histories = [
+    { id: "A-242", service: "PASPOR", counter: "COUNTER 3", time: "2 mins ago" },
+    { id: "C-087", service: "IZIN TINGGAL", counter: "COUNTER 6", time: "5 mins ago" },
+    { id: "B-011", service: "CUSTOMER SERVICE", counter: "COUNTER 2", time: "8 mins ago" },
+    { id: "A-241", service: "PASPOR", counter: "COUNTER 4", time: "12 mins ago" },
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-white text-slate-900">
-      <Header
-        title="Kantor Imigrasi Kelas I TPI Tanjungpinang"
-        subtitle="Display Informasi Antrian Layanan"
-      />
+    <div className="min-h-screen bg-[#eef1f5] text-slate-900">
+      <div className="mx-auto min-h-screen max-w-[1600px] overflow-hidden rounded-[28px] border-[6px] border-slate-400/40 bg-[#f7f7f8] shadow-2xl">
+        <Header
+          title="IMMIGRATION INDONESIA"
+          subtitle="KANTOR IMIGRASI KELAS I TPI TANJUNGPINANG"
+        />
 
-      <main className="mx-auto flex max-w-[1700px] flex-col gap-8 px-6 py-6 lg:px-10">
-        <section className="grid grid-cols-1 gap-4 lg:grid-cols-4">
-          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex items-center gap-3">
-              <div className="rounded-2xl bg-blue-100 p-3 text-blue-700">
-                <MonitorSmartphone className="h-6 w-6" />
-              </div>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
-                  Sistem
-                </p>
-                <p className="text-lg font-black text-slate-900">Online</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex items-center gap-3">
-              <div className="rounded-2xl bg-emerald-100 p-3 text-emerald-700">
-                <Users className="h-6 w-6" />
-              </div>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
-                  Total Loket Aktif
-                </p>
-                <p className="text-lg font-black text-slate-900">8 Loket</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex items-center gap-3">
-              <div className="rounded-2xl bg-amber-100 p-3 text-amber-700">
-                <Clock3 className="h-6 w-6" />
-              </div>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
-                  Jam Operasional
-                </p>
-                <p className="text-lg font-black text-slate-900">08.00 - 16.00</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex items-center gap-3">
-              <div className="rounded-2xl bg-purple-100 p-3 text-purple-700">
-                <Volume2 className="h-6 w-6" />
-              </div>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
-                  Panggilan Audio
-                </p>
-                <p className="text-lg font-black text-slate-900">Aktif</p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="grid grid-cols-1 gap-8 xl:grid-cols-12">
-          <div className="xl:col-span-8">
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+        <main className="grid grid-cols-1 gap-6 p-6 xl:grid-cols-12">
+          <section className="xl:col-span-8">
+            <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
               <QueueCard
-                category="Layanan Dokumen Perjalanan"
+                category="CATEGORY: PASSPORT SERVICE"
                 title="Paspor"
-                counters="Loket 1, 2, 3, 4"
+                counters="Counters 1, 2, 3, 4"
                 ticketNumber="A-243"
                 status="ACTIVE"
+                accent="gold"
               />
+
               <QueueCard
-                category="Informasi dan Bantuan"
+                category="CATEGORY: INFORMATION"
                 title="Customer Service"
-                counters="Loket CS 1, CS 2"
+                counters="Counters 1, 2"
                 ticketNumber="B-012"
                 status="LIVE"
+                accent="blue"
               />
+
               <QueueCard
-                category="Layanan Prioritas"
+                category="CATEGORY: HUMAN RIGHTS FRIENDLY"
                 title="Ramah HAM"
-                counters="Loket 1 (Prioritas)"
+                counters="Counter 1 (Priority)"
                 ticketNumber="R-005"
+                status="PRIORITY"
+                accent="gold"
                 isPriority
-                status="PRIORITAS"
               />
+
               <QueueCard
-                category="Keimigrasian"
-                title="Status dan Izin Tinggal"
-                counters="Loket 5, 6"
+                category="CATEGORY: STAY PERMIT"
+                title="Izin Tinggal"
+                counters="Counter 5, 6"
                 ticketNumber="C-088"
                 status="PROCESSING"
+                accent="blue"
               />
             </div>
-          </div>
+          </section>
 
           <aside className="xl:col-span-4">
-            <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-              <div className="border-b border-slate-100 bg-gradient-to-r from-slate-900 to-blue-900 px-6 py-5 text-white">
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-blue-200">
-                  Informasi Display
-                </p>
-                <h3 className="mt-2 text-2xl font-black tracking-tight">
-                  Riwayat Panggilan Terakhir
-                </h3>
-                <p className="mt-1 text-sm text-slate-200">
-                  Menampilkan antrean yang baru saja dipanggil oleh petugas.
-                </p>
+            <div className="flex h-full flex-col gap-5">
+              <div className="relative overflow-hidden rounded-2xl bg-slate-900 shadow-sm">
+                <img
+                  src="https://images.unsplash.com/photo-1520607162513-77705c0f0d4a?auto=format&fit=crop&w=1200&q=80"
+                  alt="Informasi edukasi layanan"
+                  className="h-[180px] w-full object-cover opacity-60"
+                  referrerPolicy="no-referrer"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-[#08285e] via-[#0b2c64]/70 to-transparent" />
+                <div className="absolute inset-0 flex flex-col justify-end p-6">
+                  <h3 className="text-[18px] font-bold tracking-tight text-white md:text-[20px]">
+                    Prosedur Pembuatan E-Paspor Baru
+                  </h3>
+                  <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.22em] text-blue-100">
+                    Informasi Edukasi Layanan
+                  </p>
+                </div>
               </div>
 
-              <div className="space-y-3 p-4 lg:p-5">
-                {history.map((item, index) => (
-                  <div
-                    key={item.id}
-                    className="flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50 px-4 py-4 transition hover:bg-slate-100"
-                    style={{ opacity: 1 - index * 0.06 }}
-                  >
-                    <div>
-                      <div className="text-2xl font-black tracking-tight text-slate-900">
-                        {item.id}
+              <div className="flex-1 overflow-hidden rounded-2xl bg-[#ececec] shadow-sm">
+                <div className="flex items-center gap-3 border-b border-slate-200/70 px-6 py-5">
+                  <RotateCcw className="h-4 w-4 text-slate-700" />
+                  <h3 className="text-[13px] font-bold uppercase tracking-[0.22em] text-slate-800">
+                    Recent History
+                  </h3>
+                </div>
+
+                <div className="space-y-3 p-4">
+                  {histories.map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center justify-between rounded-xl bg-white px-5 py-4 shadow-[0_1px_0_rgba(0,0,0,0.03)]"
+                    >
+                      <div>
+                        <div className="text-[22px] font-extrabold tracking-tight text-[#08285e]">
+                          {item.id}
+                        </div>
+                        <div className="mt-1 text-[11px] font-medium uppercase tracking-[0.18em] text-slate-400">
+                          {item.service} - {item.counter}
+                        </div>
                       </div>
-                      <p className="mt-1 text-sm font-medium text-slate-600">
-                        {item.layanan}
-                      </p>
-                      <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
-                        Loket {item.loket}
-                      </p>
+                      <div className="text-[12px] font-medium text-slate-500">
+                        {item.time}
+                      </div>
                     </div>
-
-                    <div className="rounded-full bg-white px-3 py-2 text-xs font-bold text-slate-500 shadow-sm">
-                      {item.waktu}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="border-t border-slate-100 bg-amber-50 px-6 py-5">
-                <p className="text-sm font-bold text-amber-900">
-                  Perhatian Pengunjung
-                </p>
-                <p className="mt-1 text-sm text-amber-800">
-                  Mohon menunggu hingga nomor Anda dipanggil dan siapkan dokumen
-                  yang diperlukan sebelum menuju loket.
-                </p>
+                  ))}
+                </div>
               </div>
             </div>
           </aside>
-        </section>
-      </main>
+        </main>
 
-      <Ticker />
+        <Ticker />
+      </div>
     </div>
   );
+}
+
+interface QueueCardProps {
+  category: string
+  title: string
+  counters: string
+  ticketNumber: string
+  status: string
+  accent: string
+  isPriority?: boolean
 }

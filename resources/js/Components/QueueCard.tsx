@@ -7,7 +7,8 @@ interface QueueCardProps {
   title: string;
   counters: string;
   ticketNumber: string;
-  status?: "ACTIVE" | "LIVE" | "PROCESSING" | "PRIORITAS";
+  status?: "ACTIVE" | "LIVE" | "PROCESSING" | "PRIORITY";
+  accent?: string;
   isPriority?: boolean;
   className?: string;
 }
@@ -18,6 +19,7 @@ export default function QueueCard({
   counters,
   ticketNumber,
   status = "ACTIVE",
+  accent,
   isPriority = false,
   className,
 }: QueueCardProps) {

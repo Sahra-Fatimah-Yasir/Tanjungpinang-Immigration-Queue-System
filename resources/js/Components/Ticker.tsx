@@ -2,29 +2,30 @@ import { Megaphone } from "lucide-react";
 
 export default function Ticker() {
   const messages = [
-    "Selamat datang di Kantor Imigrasi Kelas I TPI Tanjungpinang",
-    "Mohon siapkan dokumen asli dan fotokopi sebelum menuju loket pelayanan",
-    "Perhatikan nomor antrean Anda pada layar display dan panggilan suara",
-    "Layanan prioritas Ramah HAM tersedia sesuai ketentuan yang berlaku",
+    "Selamat Datang di Kantor Imigrasi Kelas I TPI Tanjungpinang",
+    "KAMI MELAYANI DENGAN HATI DAN INTEGRITAS",
+    "Siapkan berkas asli dan fotokopi Anda untuk mempercepat proses verifikasi",
+    "Pembayaran paspor hanya melalui bank atau pos",
+    "Terima kasih telah menunggu dengan tertib",
   ];
 
   return (
-    <footer className="mt-6 w-full overflow-hidden border-t border-slate-200 bg-slate-950">
-      <div className="flex h-14 items-center">
-        <div className="flex h-full items-center gap-2 bg-amber-400 px-6 text-slate-950">
-          <Megaphone className="h-5 w-5" />
-          <span className="text-xs font-black uppercase tracking-[0.24em]">
-            Informasi
+    <footer className="overflow-hidden border-t-4 border-[#d4a62a] bg-[#08285e]">
+      <div className="flex h-[78px] items-center">
+        <div className="flex h-full shrink-0 items-center gap-3 border-r border-white/10 px-6 text-[#ffc94f]">
+          <Megaphone className="h-6 w-6" />
+          <span className="text-[18px] font-extrabold uppercase tracking-tight">
+            Pengumuman
           </span>
         </div>
 
         <div className="relative flex-1 overflow-hidden">
-          <div className="ticker-text flex min-w-max items-center gap-20 whitespace-nowrap px-6 text-sm font-medium text-white">
-            {messages.map((msg, i) => (
-              <span key={i}>{msg}</span>
+          <div className="ticker-text flex min-w-max items-center gap-16 whitespace-nowrap px-8 text-[18px] font-medium text-white">
+            {messages.map((msg, index) => (
+              <span key={index}>— {msg}</span>
             ))}
-            {messages.map((msg, i) => (
-              <span key={`dup-${i}`}>{msg}</span>
+            {messages.map((msg, index) => (
+              <span key={`dup-${index}`}>— {msg}</span>
             ))}
           </div>
         </div>

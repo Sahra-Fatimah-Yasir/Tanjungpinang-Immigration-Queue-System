@@ -8,3 +8,16 @@
   --color-secondary: #775a19;
   /* dst */
 }
+
+@keyframes ticker-marquee {
+  0% {
+    transform: translateX(0%);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.ticker-text {
+  animation: ticker-marquee 28s linear infinite;
+}
