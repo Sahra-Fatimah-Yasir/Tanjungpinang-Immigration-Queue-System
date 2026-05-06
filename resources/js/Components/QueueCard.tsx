@@ -49,6 +49,8 @@ export default function QueueCard({
   const nextCustomerLabel = nextTicketNumber
     ? nextCustomerName || "Nama belum diisi"
     : "Belum ada antrean";
+  const hasTicket = ticketNumber.trim() !== "" && ticketNumber !== "-";
+  const displayCounterLabel = hasTicket ? counterLabel : "Belum aktif";
 
   if (compact) {
     return (
@@ -71,7 +73,7 @@ export default function QueueCard({
             <p className="truncate text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
               {category}
             </p>
-            <h2 className="mt-1 truncate text-lg font-black leading-tight tracking-tight text-slate-900 2xl:text-xl">
+            <h2 className="mt-1 truncate text-[19px] font-black leading-tight tracking-tight text-slate-900 2xl:text-[21px]">
               {title}
             </h2>
             <div className="mt-1.5 inline-flex max-w-full items-center gap-1.5 rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-700">
@@ -102,43 +104,54 @@ export default function QueueCard({
           </div>
         </div>
 
-        <div className="relative z-10 mt-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl bg-gradient-to-br from-slate-950 via-blue-950 to-slate-900 p-3 text-white shadow-lg">
-          <p className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.2em] text-blue-200">
-            Nomor Sedang Dipanggil
-          </p>
+        <div className="relative z-10 mt-3 grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(148px,0.84fr)] gap-3 overflow-hidden rounded-2xl bg-[#102052] p-3 text-white shadow-lg">
+          <div className="flex min-h-0 min-w-0 flex-col justify-between">
+            <p className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.2em] text-blue-200">
+              Nomor Dipanggil
+            </p>
 
-          <div className="flex min-h-0 flex-1 items-center justify-center py-1">
             <motion.div
               key={ticketNumber}
               initial={{ scale: 0.96, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               className={cn(
-                "text-center text-[clamp(2.6rem,5vw,4.9rem)] font-black leading-none tracking-tight",
+                "my-2 truncate font-black leading-none tracking-tight",
+                hasTicket ? "text-[clamp(2.4rem,4.25vw,4.75rem)]" : "text-2xl",
                 isPriority ? "text-amber-300" : "text-white"
               )}
             >
-              {ticketNumber}
+              {hasTicket ? ticketNumber : "Belum dipanggil"}
             </motion.div>
+
+            <div className="inline-flex w-fit max-w-full items-center gap-2 rounded-full bg-white/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-blue-100">
+              <span
+                className={cn(
+                  "h-2 w-2 rounded-full",
+                  status === "LIVE" ? "animate-pulse bg-blue-300" : "bg-white"
+                )}
+              />
+              {statusLabel}
+            </div>
           </div>
 
-          <div className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-end gap-3 rounded-xl border border-white/10 bg-white/10 px-3 py-2">
-            <div className="min-w-0">
+          <div className="grid min-h-0 gap-2">
+            <div className="min-w-0 rounded-xl border border-white/10 bg-white/10 px-3 py-2">
               <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-blue-200">
                 Loket
               </p>
-              <p className="mt-0.5 truncate text-xs font-bold text-slate-100">
-                {counterLabel}
+              <p className="mt-1 truncate text-sm font-extrabold text-white">
+                {displayCounterLabel}
               </p>
             </div>
 
-            <div className="text-right">
+            <div className="min-w-0 rounded-xl border border-white/10 bg-white/10 px-3 py-2">
               <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-blue-200">
                 Berikutnya
               </p>
-              <p className="mt-0.5 text-xl font-black leading-none tracking-tight text-white">
+              <p className="mt-1 truncate text-2xl font-black leading-none tracking-tight text-white">
                 {nextTicketNumber || "-"}
               </p>
-              <p className="mt-0.5 max-w-28 truncate text-[10px] font-semibold text-slate-300">
+              <p className="mt-1 truncate text-[11px] font-semibold text-slate-300">
                 {nextCustomerLabel}
               </p>
             </div>

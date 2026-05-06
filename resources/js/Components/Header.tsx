@@ -34,23 +34,23 @@ export default function Header({
     <header
       className={cn(
         compact
-          ? "border-b border-slate-200 bg-[#f2f2f3] px-4 py-3"
+          ? "border-b border-slate-200 bg-[#f2f2f3] px-4 py-1.5"
           : "border-b border-slate-200 bg-[#f2f2f3] px-7 py-5",
         className
       )}
     >
-      <div className={cn("flex items-center justify-between", compact ? "gap-4" : "gap-6")}>
+      <div className={cn("flex items-center justify-between", compact ? "gap-3" : "gap-6")}>
         <div className={cn("flex min-w-0 items-center", compact ? "gap-3" : "gap-4")}>
           <div
             className={cn(
               "flex shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[#08285e] shadow-md",
-              compact ? "h-14 w-14" : "h-[72px] w-[72px]"
+              compact ? "h-10 w-10" : "h-[72px] w-[72px]"
             )}
           >
             <img
               src="/images/logo.png"
               alt="Logo Imigrasi"
-              className={cn("object-contain", compact ? "h-9 w-9" : "h-12 w-12")}
+              className={cn("object-contain", compact ? "h-7 w-7" : "h-12 w-12")}
               referrerPolicy="no-referrer"
             />
           </div>
@@ -59,7 +59,7 @@ export default function Header({
             <h1
               className={cn(
                 "truncate font-extrabold uppercase tracking-tight text-[#1a2c7d]",
-                compact ? "text-[18px] md:text-[20px]" : "text-[20px] md:text-[22px]"
+                compact ? "text-[17px] md:text-[19px]" : "text-[20px] md:text-[22px]"
               )}
             >
               {title}
@@ -68,7 +68,7 @@ export default function Header({
               <p
                 className={cn(
                   "mt-1 truncate font-medium uppercase text-[#8c6a1b]",
-                  compact ? "text-[11px] tracking-[0.18em]" : "text-[13px] tracking-[0.22em]"
+                  compact ? "text-[10px] tracking-[0.16em]" : "text-[13px] tracking-[0.22em]"
                 )}
               >
                 {subtitle}
@@ -77,12 +77,12 @@ export default function Header({
           </div>
         </div>
 
-        <div className={cn("flex shrink-0 items-center", compact ? "gap-4" : "gap-6")}>
+        <div className={cn("flex shrink-0 items-center", compact ? "gap-3" : "gap-6")}>
           <div className="text-right">
             <div
               className={cn(
                 "font-extrabold tracking-tight text-[#10275e]",
-                compact ? "text-[20px]" : "text-[22px]"
+                compact ? "text-[18px]" : "text-[22px]"
               )}
             >
               {currentTime}
@@ -90,7 +90,7 @@ export default function Header({
             <div
               className={cn(
                 "font-medium uppercase tracking-[0.18em] text-slate-500",
-                compact ? "text-[10px]" : "text-[12px]"
+                compact ? "text-[9px]" : "text-[12px]"
               )}
             >
               {currentDate}
