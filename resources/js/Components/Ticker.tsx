@@ -11,21 +11,21 @@ export default function Ticker() {
 
   return (
     <footer className="overflow-hidden border-t-4 border-[#d4a62a] bg-[#08285e]">
-      <div className="flex h-[78px] items-center">
-        <div className="flex h-full shrink-0 items-center gap-3 border-r border-white/10 px-6 text-[#ffc94f]">
-          <Megaphone className="h-6 w-6" />
-          <span className="text-[18px] font-extrabold uppercase tracking-tight">
+      <div className="flex h-14 items-center xl:h-16">
+        <div className="flex h-full shrink-0 items-center gap-2 border-r border-white/10 px-4 text-[#ffc94f] xl:gap-3 xl:px-5">
+          <Megaphone className="h-5 w-5 xl:h-6 xl:w-6" />
+          <span className="text-[14px] font-extrabold uppercase tracking-tight xl:text-[16px]">
             Pengumuman
           </span>
         </div>
 
         <div className="relative flex-1 overflow-hidden">
-          <div className="ticker-text flex min-w-max items-center gap-16 whitespace-nowrap px-8 text-[18px] font-medium text-white">
+          <div className="ticker-text flex min-w-max items-center gap-12 whitespace-nowrap px-6 text-[15px] font-medium text-white xl:gap-16 xl:px-8 xl:text-[17px]">
             {messages.map((msg, index) => (
-              <span key={index}>— {msg}</span>
+              <span key={index}>- {msg}</span>
             ))}
             {messages.map((msg, index) => (
-              <span key={`dup-${index}`}>— {msg}</span>
+              <span key={`dup-${index}`}>- {msg}</span>
             ))}
           </div>
         </div>

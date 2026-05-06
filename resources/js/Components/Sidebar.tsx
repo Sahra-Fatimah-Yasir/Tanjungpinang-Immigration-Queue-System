@@ -15,22 +15,27 @@ export default function Sidebar() {
   const location = useLocation();
 
   const menuItems = [
-    { icon: LayoutDashboard, label: "Dashboard", path: "/admin" },
-    { icon: Ticket, label: "Active Queue", path: "/officer" },
-    { icon: Monitor, label: "Counter Management", path: "#" },
-    { icon: BarChart3, label: "Service Reports", path: "#" },
-    { icon: Settings, label: "Settings", path: "#" },
-  ];
+  { icon: LayoutDashboard, label: "Dashboard", path: "/admin/dashboard" },
+  { icon: Shield, label: "Officer Management", path: "/admin/officers" },
+  { icon: Monitor, label: "Counter Management", path: "/admin/counters" },
+  { icon: Ticket, label: "Active Queue", path: "/admin/queue" },
+  { icon: BarChart3, label: "Service Reports", path: "/admin/reports" },
+  { icon: Settings, label: "Settings", path: "/admin/settings" },
+];
 
   return (
     <aside className="h-screen w-64 sticky top-0 flex flex-col py-6 bg-surface-container-low border-none font-inter text-sm font-medium">
       <div className="px-6 mb-10 flex items-center gap-3">
-        <div className="w-10 h-10 bg-primary flex items-center justify-center rounded-lg shadow-lg">
-          <Shield className="w-6 h-6 text-secondary-fixed fill-secondary-fixed" />
+        <div className="w-14 h-14 flex items-center justify-center">
+          <img
+            src="/images/logo.png"
+            alt="Logo Imigrasi"
+            className="w-18 h-18 object-contain"
+          />
         </div>
         <div>
-          <h2 className="text-lg font-black text-primary leading-tight uppercase tracking-tighter">Sovereign Service</h2>
-          <p className="text-[10px] uppercase tracking-widest text-outline font-bold">Immigration Office</p>
+          <h2 className="text-lg font-black text-primary leading-tight uppercase tracking-tighter">Kantor Imigrasi</h2>
+          <p className="text-[10px] uppercase tracking-widest text-outline font-bold">Kelas I TPI Tanjung Pinang</p>
         </div>
       </div>
 
@@ -56,13 +61,20 @@ export default function Sidebar() {
       </nav>
 
       <div className="px-6 mt-auto">
-        <button className="w-full py-3 bg-gradient-to-br from-primary to-primary-container text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-transform">
+        <Link
+          to="/admin/officers"
+          className="w-full py-3 bg-gradient-to-br from-primary to-primary-container text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-transform"
+        >
           <PlusCircle className="w-4 h-4" />
-          New Entry
-        </button>
+          Add Officer
+        </Link>
         <div className="mt-6 pt-6 border-t border-outline-variant">
           <Link
-            to="/login"
+            to="/admin/login"
+            onClick={() => {
+              localStorage.removeItem('auth_token');
+              localStorage.removeItem('admin_data');
+            }}
             className="flex items-center text-outline px-6 py-3 hover:bg-white/50 rounded-lg transition-all duration-200 ease-in-out"
           >
             <LogOut className="w-5 h-5 mr-3" />

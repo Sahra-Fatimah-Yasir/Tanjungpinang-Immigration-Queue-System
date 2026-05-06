@@ -1,195 +1,349 @@
-import Sidebar from "../Components/Sidebar.tsx";
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import Header from "../Components/Header.tsx";
-import { 
-  Megaphone, 
-  RotateCcw, 
-  CheckCircle2, 
-  MoveUp, 
-  Timer, 
-  BadgeCheck, 
-  Users, 
-  TrendingUp, 
-  Info,
-  ArrowRight,
-  Headphones,
-  ChevronRight
+import {
+  AlertCircle,
+  CheckCircle2,
+  Clock3,
+  LogOut,
+  Megaphone,
+  RefreshCw,
+  RotateCcw,
+  Timer,
+  UserRound,
+  Users,
 } from "lucide-react";
-import { cn } from "../lib/utils.ts";
+
+interface OfficerDashboardData {
+  counter: {
+    code: string;
+    number: number;
+    service: {
+      id: number;
+      code: string;
+      name: string;
+      is_priority: boolean;
+    };
+  } | null;
+  today: {
+    total_served: number;
+    total_skipped: number;
+    avg_service_time: number | null;
+  };
+  current_ticket: {
+    id: number;
+    ticket_number: string;
+    status: "CALLING" | "SERVING";
+    customer_name?: string | null;
+    identity_number?: string | null;
+  } | null;
+  queue_in_waiting: number;
+}
 
 export default function OfficerDashboard() {
+  const navigate = useNavigate();
+  const [data, setData] = useState<OfficerDashboardData | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const token = localStorage.getItem("auth_token");
+  const officer = JSON.parse(localStorage.getItem("officer_data") || "{}");
+
+  const loadDashboard = async () => {
+    if (!token) {
+      navigate("/officer/login");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+
+    try {
+      const response = await fetch("/api/officer/dashboard", {
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.message || "Gagal memuat dashboard petugas");
+      }
+
+      setData(result.data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Terjadi kesalahan");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadDashboard();
+    const interval = window.setInterval(loadDashboard, 5000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  const speakMessage = ({
+    ticketNumber,
+    counterNumber,
+    serviceName,
+    customerName,
+    isPriority,
+  }: {
+    ticketNumber?: string | undefined;
+    counterNumber?: number | undefined;
+    serviceName?: string | undefined;
+    customerName?: string | null | undefined;
+    isPriority?: boolean | undefined;
+  }) => {
+    if (!ticketNumber || !counterNumber) return;
+
+    const spokenTicketNumber = ticketNumber.replace("-", " ");
+    const prefix = isPriority || serviceName?.toLowerCase().includes("ramah ham")
+      ? `Nomor antrian layanan ${serviceName || "Ramah HAM"} ${spokenTicketNumber}`
+      : `Nomor antrian ${spokenTicketNumber}`;
+
+    const nameSection = customerName ? ` atas nama ${customerName}` : "";
+    const message = `${prefix}${nameSection}, silakan ke loket ${counterNumber}.`;
+
+    if ("speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(message);
+      utterance.lang = "id-ID";
+      utterance.rate = 0.95;
+      utterance.pitch = 1;
+      window.speechSynthesis.speak(utterance);
+    }
+  };
+
+  const speakTicket = () => {
+    speakMessage({
+      ticketNumber: data?.current_ticket?.ticket_number,
+      counterNumber: data?.counter?.number,
+      serviceName: data?.counter?.service.name,
+      customerName: data?.current_ticket?.customer_name,
+      isPriority: data?.counter?.service.is_priority,
+    });
+  };
+
+  const runAction = async (action: "call-next" | "serve" | "complete" | "skip") => {
+    if (!token || !data?.counter) return;
+
+    if (action !== "call-next" && !data.current_ticket) return;
+
+    setActionLoading(true);
+    setError("");
+
+    try {
+      const url =
+        action === "call-next"
+          ? "/api/officer/queue/call-next"
+          : `/api/officer/queue/${data.current_ticket?.id}/${action}`;
+
+      const requestOptions: RequestInit = {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      };
+
+      if (action === "call-next") {
+        requestOptions.body = JSON.stringify({ service_category_id: data.counter.service.id });
+      }
+
+      const response = await fetch(url, requestOptions);
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.message || "Aksi gagal diproses");
+      }
+
+      if (action === "call-next") {
+        speakMessage({
+          ticketNumber: result.data?.queue?.ticket_number,
+          counterNumber: data.counter.number,
+          serviceName: data.counter.service.name,
+          customerName: result.data?.queue?.customer_name,
+          isPriority: data.counter.service.is_priority,
+        });
+      }
+
+      await loadDashboard();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Terjadi kesalahan");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    if (token) {
+      await fetch("/api/officer/logout", {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      }).catch(() => null);
+    }
+
+    localStorage.removeItem("auth_token");
+    localStorage.removeItem("officer_data");
+    navigate("/officer/login");
+  };
+
   return (
-    <div className="flex min-h-screen bg-surface">
-      <Sidebar />
-      
-      <main className="flex-1 flex flex-col h-screen overflow-y-auto">
-        <Header 
-          title="Immigration Indonesia" 
-          subtitle="Counter 2 - Paspor Service" 
-          showUser 
-        />
+    <div className="min-h-screen bg-surface">
+      <Header
+        title="Dashboard Petugas"
+        subtitle={data?.counter ? `${data.counter.code} - ${data.counter.service.name}` : "Loket belum ditugaskan"}
+        showUser
+      />
 
-        <div className="p-8 max-w-7xl mx-auto w-full space-y-8">
-          <div className="grid grid-cols-12 gap-6">
-            {/* Current Ticket Main Card */}
-            <div className="col-span-12 lg:col-span-8 bg-surface-container-lowest rounded-xl shadow-sm overflow-hidden flex flex-col border-l-4 border-secondary">
-              <div className="p-8 flex-1 flex flex-col justify-center items-center text-center relative">
-                <div className="absolute top-6 left-8 flex items-center gap-2">
-                  <span className="px-3 py-1 bg-secondary-fixed text-on-secondary-fixed text-[10px] font-bold rounded-full uppercase tracking-tighter font-label">Serving Now</span>
-                </div>
-                <span className="text-xs font-label uppercase tracking-[0.2em] text-outline mb-2">Current Ticket Number</span>
-                <div className="mb-4">
-                  <h2 className="text-9xl font-headline font-extrabold text-primary tracking-tighter">A-248</h2>
-                </div>
-                <div className="space-y-1">
-                  <h3 className="text-2xl font-bold font-headline text-on-surface">Rahman Hakim Al-Fatih</h3>
-                  <p className="text-on-surface-variant font-medium flex items-center justify-center gap-2">
-                    <BadgeCheck className="w-4 h-4" />
-                    3275012304950001
-                  </p>
-                </div>
-                
-                <div className="mt-12 flex flex-wrap justify-center gap-4 w-full max-w-2xl">
-                  <button className="flex-1 min-w-[160px] px-6 py-4 bg-primary text-white rounded-xl font-bold flex items-center justify-center gap-3 transition-all hover:scale-[1.02] active:scale-95 shadow-lg shadow-primary/10">
-                    <Megaphone className="w-5 h-5" />
-                    Panggil Antrian
-                  </button>
-                  <button className="flex-1 min-w-[160px] px-6 py-4 bg-surface-container-high text-primary border border-outline-variant/30 rounded-xl font-bold flex items-center justify-center gap-3 transition-all hover:bg-white active:scale-95">
-                    <RotateCcw className="w-5 h-5" />
-                    Panggil Ulang
-                  </button>
-                  <button className="flex-1 min-w-[160px] px-6 py-4 bg-primary-container text-white rounded-xl font-bold flex items-center justify-center gap-3 transition-all hover:opacity-90 active:scale-95 shadow-lg shadow-primary-container/20">
-                    <CheckCircle2 className="w-5 h-5" />
-                    Selesai
-                  </button>
-                  <button className="flex-1 min-w-[160px] px-6 py-4 bg-transparent text-primary border border-primary rounded-xl font-bold flex items-center justify-center gap-3 transition-all hover:bg-primary/5 active:scale-95">
-                    <MoveUp className="w-5 h-5" />
-                    Transfer
-                  </button>
-                </div>
-              </div>
-              
-              <div className="bg-surface-container-low px-8 py-4 flex justify-between items-center border-t border-outline-variant/10">
-                <div className="flex items-center gap-4">
-                  <div className="flex -space-x-2">
-                    {[1, 2].map((i) => (
-                      <img 
-                        key={i}
-                        className="w-8 h-8 rounded-full border-2 border-white object-cover" 
-                        src={`https://picsum.photos/seed/user${i}/100/100`} 
-                        alt="User" 
-                        referrerPolicy="no-referrer"
-                      />
-                    ))}
-                    <div className="w-8 h-8 rounded-full border-2 border-white bg-secondary-fixed text-[10px] font-bold flex items-center justify-center text-on-secondary-fixed">+12</div>
-                  </div>
-                  <span className="text-xs font-medium text-on-surface-variant">Waiting in Queue</span>
-                </div>
-                <div className="flex items-center gap-2 text-on-tertiary-container font-bold text-sm">
-                  <Timer className="w-4 h-4 animate-pulse" />
-                  <span>Est. Wait: 12 Mins</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Stats Panel */}
-            <div className="col-span-12 lg:col-span-4 space-y-6">
-              <div className="bg-primary p-6 rounded-xl relative overflow-hidden group shadow-lg">
-                <div className="absolute -right-6 -bottom-6 opacity-10 group-hover:scale-110 transition-transform duration-500">
-                  <Users className="w-32 h-32 text-white" />
-                </div>
-                <p className="text-primary-fixed-dim font-label text-[10px] uppercase tracking-widest font-bold">Total Served Today</p>
-                <h4 className="text-5xl font-headline font-extrabold text-white mt-2">142</h4>
-                <div className="mt-4 flex items-center gap-2 text-primary-fixed text-xs">
-                  <TrendingUp className="w-4 h-4" />
-                  <span>12% more than yesterday</span>
-                </div>
-              </div>
-
-              <div className="bg-surface-container-lowest p-6 rounded-xl shadow-sm border-l-4 border-primary-container">
-                <p className="text-on-surface-variant font-label text-[10px] uppercase tracking-widest font-bold">In Queue Waiting</p>
-                <h4 className="text-5xl font-headline font-extrabold text-primary mt-2">14</h4>
-                <div className="mt-4 flex flex-col gap-3">
-                  <div className="w-full bg-surface-container h-1.5 rounded-full">
-                    <div className="bg-primary-container h-full rounded-full w-[65%]" />
-                  </div>
-                  <div className="flex justify-between text-[10px] font-bold uppercase text-outline">
-                    <span>High Traffic</span>
-                    <span>Target: 20/hr</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white p-6 rounded-xl shadow-sm border border-outline-variant/10">
-                <div className="flex items-center justify-between mb-4">
-                  <h5 className="font-bold text-sm text-on-surface">Service Details</h5>
-                  <Info className="w-4 h-4 text-secondary" />
-                </div>
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center py-2 border-b border-surface-container">
-                    <span className="text-xs text-on-surface-variant">Service Class</span>
-                    <span className="text-xs font-bold text-primary">Paspor Umum</span>
-                  </div>
-                  <div className="flex justify-between items-center py-2 border-b border-surface-container">
-                    <span className="text-xs text-on-surface-variant">Shift Status</span>
-                    <span className="text-xs font-bold text-emerald-600 px-2 py-1 bg-emerald-50 rounded">Active</span>
-                  </div>
-                  <div className="flex justify-between items-center py-2">
-                    <span className="text-xs text-on-surface-variant">Login Duration</span>
-                    <span className="text-xs font-bold text-primary">04:22:15</span>
-                  </div>
-                </div>
-              </div>
-            </div>
+      <main className="mx-auto w-full max-w-7xl space-y-8 p-8">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-black text-primary">
+              {officer.name || "Petugas"}
+            </h1>
+            <p className="mt-1 text-sm font-semibold text-outline">
+              {officer.nip || "-"}
+            </p>
           </div>
 
-          {/* Upcoming Queue */}
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xl font-headline font-bold text-primary">Upcoming in Queue</h3>
-              <button className="text-xs font-bold text-primary flex items-center gap-1 hover:underline">
-                View Full List <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {[
-                { id: "A-249", name: "Siti Aminah", type: "Perpanjangan Paspor" },
-                { id: "A-250", name: "Marcus Wijaya", type: "Paspor Baru (E-Paspor)" },
-                { id: "A-251", name: "Linh Tran", type: "Layanan WNA" },
-                { id: "A-252", name: "Ahmad Subagyo", type: "Pengambilan Paspor", highlight: true },
-              ].map((ticket) => (
-                <div key={ticket.id} className="bg-surface-container-lowest p-5 rounded-xl shadow-sm hover:shadow-md transition-shadow cursor-pointer group">
-                  <div className="flex justify-between items-start mb-4">
-                    <div className={cn(
-                      "w-10 h-10 rounded-lg flex items-center justify-center font-bold",
-                      ticket.highlight ? "bg-secondary-fixed text-on-secondary-fixed" : "bg-surface-container text-primary"
-                    )}>
-                      {ticket.id}
-                    </div>
-                    <ArrowRight className="w-4 h-4 text-outline group-hover:text-primary transition-colors" />
-                  </div>
-                  <p className="font-bold text-on-surface mb-1 truncate">{ticket.name}</p>
-                  <p className="text-[10px] text-on-surface-variant font-label uppercase tracking-wider">{ticket.type}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Footer Assistance */}
-          <div className="bg-white/70 backdrop-blur-md p-6 rounded-2xl border border-white/50 flex items-center justify-between shadow-xl">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-primary">
-                <Headphones className="w-6 h-6" />
-              </div>
-              <div>
-                <p className="text-sm font-bold text-primary">Need assistance with this ticket?</p>
-                <p className="text-xs text-on-surface-variant">Report issues or request supervisor override.</p>
-              </div>
-            </div>
-            <button className="px-6 py-2 border border-primary text-primary rounded-lg text-xs font-bold hover:bg-primary hover:text-white transition-all">
-              Contact Supervisor
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={loadDashboard}
+              disabled={loading}
+              className="flex items-center gap-2 rounded-xl border border-outline-variant px-4 py-3 text-sm font-bold text-primary transition hover:bg-surface-container-low disabled:opacity-60"
+            >
+              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+              Refresh
+            </button>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="flex items-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-bold text-white transition hover:bg-primary-container"
+            >
+              <LogOut className="h-4 w-4" />
+              Logout
             </button>
           </div>
         </div>
+
+        {error && (
+          <div className="flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 font-medium text-red-700">
+            <AlertCircle className="h-5 w-5" />
+            {error}
+          </div>
+        )}
+
+        <section className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+          <div className="rounded-xl border-l-4 border-secondary bg-surface-container-lowest shadow-sm lg:col-span-8">
+            <div className="flex min-h-[460px] flex-col items-center justify-center p-8 text-center">
+              <span className="mb-2 text-xs font-bold uppercase tracking-[0.2em] text-outline">
+                Nomor Sedang Dilayani
+              </span>
+
+              <h2 className="text-7xl font-extrabold tracking-tight text-primary md:text-9xl">
+                {data?.current_ticket?.ticket_number || "-"}
+              </h2>
+
+              <div className="mt-6 space-y-2">
+                <p className="text-2xl font-bold text-on-surface">
+                  {data?.current_ticket?.customer_name || "Belum ada antrian aktif"}
+                </p>
+                <p className="flex items-center justify-center gap-2 text-on-surface-variant">
+                  <UserRound className="h-4 w-4" />
+                  {data?.current_ticket?.identity_number || "-"}
+                </p>
+              </div>
+
+              <div className="mt-12 grid w-full max-w-3xl grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <button
+                  type="button"
+                  onClick={() => runAction("call-next")}
+                  disabled={actionLoading || !data?.counter}
+                  className="flex items-center justify-center gap-3 rounded-xl bg-primary px-5 py-4 font-bold text-white shadow-lg shadow-primary/10 transition hover:scale-[1.02] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Megaphone className="h-5 w-5" />
+                  Panggil
+                </button>
+
+                <button
+                  type="button"
+                  onClick={speakTicket}
+                  disabled={!data?.current_ticket}
+                  className="flex items-center justify-center gap-3 rounded-xl border border-outline-variant bg-surface-container-high px-5 py-4 font-bold text-primary transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <RotateCcw className="h-5 w-5" />
+                  Ulang
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => runAction(data?.current_ticket?.status === "CALLING" ? "serve" : "complete")}
+                  disabled={actionLoading || !data?.current_ticket}
+                  className="flex items-center justify-center gap-3 rounded-xl bg-primary-container px-5 py-4 font-bold text-white shadow-lg shadow-primary-container/20 transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <CheckCircle2 className="h-5 w-5" />
+                  {data?.current_ticket?.status === "CALLING" ? "Layani" : "Selesai"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => runAction("skip")}
+                  disabled={actionLoading || !data?.current_ticket}
+                  className="flex items-center justify-center gap-3 rounded-xl border border-primary bg-transparent px-5 py-4 font-bold text-primary transition hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <AlertCircle className="h-5 w-5" />
+                  Lewati
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-6 lg:col-span-4">
+            <div className="rounded-xl bg-primary p-6 shadow-lg">
+              <Users className="mb-4 h-8 w-8 text-white" />
+              <p className="text-xs font-bold uppercase tracking-widest text-primary-fixed-dim">
+                Dilayani Hari Ini
+              </p>
+              <h4 className="mt-2 text-5xl font-extrabold text-white">
+                {data?.today.total_served ?? 0}
+              </h4>
+            </div>
+
+            <div className="rounded-xl border-l-4 border-primary-container bg-surface-container-lowest p-6 shadow-sm">
+              <Clock3 className="mb-4 h-8 w-8 text-primary" />
+              <p className="text-xs font-bold uppercase tracking-widest text-outline">
+                Menunggu
+              </p>
+              <h4 className="mt-2 text-5xl font-extrabold text-primary">
+                {data?.queue_in_waiting ?? 0}
+              </h4>
+            </div>
+
+            <div className="rounded-xl border border-outline-variant bg-white p-6 shadow-sm">
+              <Timer className="mb-4 h-8 w-8 text-secondary" />
+              <p className="text-xs font-bold uppercase tracking-widest text-outline">
+                Rata-rata Layanan
+              </p>
+              <h4 className="mt-2 text-3xl font-extrabold text-primary">
+                {data?.today.avg_service_time ?? 0} menit
+              </h4>
+              <p className="mt-4 text-sm font-semibold text-outline">
+                Dilewati: {data?.today.total_skipped ?? 0}
+              </p>
+            </div>
+          </div>
+        </section>
       </main>
     </div>
   );

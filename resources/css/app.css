@@ -2,13 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-@theme {
-  /* ... masukkan isi @theme dari kode index.css saya sebelumnya ... */
-  --color-primary: #001944;
-  --color-secondary: #775a19;
-  /* dst */
-}
-
 @keyframes ticker-marquee {
   0% {
     transform: translateX(0%);
