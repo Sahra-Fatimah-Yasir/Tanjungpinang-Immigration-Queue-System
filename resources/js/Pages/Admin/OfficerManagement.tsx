@@ -124,7 +124,7 @@ export default function OfficerManagement() {
 
     try {
       if (showCreateForm) {
-        await createOfficer({
+        const createResult = await createOfficer({
           nip: formData.nip,
           name: formData.name,
           email: formData.email || null,
@@ -135,7 +135,13 @@ export default function OfficerManagement() {
           password_confirmation: formData.password_confirmation,
         } as any);
 
-        setSuccessMessage('Officer berhasil ditambahkan.');
+        if (createResult?.email_sent) {
+          setSuccessMessage('Officer berhasil ditambahkan. Username/NIP dan password login sudah dikirim ke email.');
+        } else if (formData.email) {
+          setSuccessMessage('Officer berhasil ditambahkan, tetapi email kredensial belum berhasil dikirim. Cek konfigurasi mail server.');
+        } else {
+          setSuccessMessage('Officer berhasil ditambahkan. Isi email officer jika ingin kredensial dikirim otomatis.');
+        }
       } else if (editingId) {
         await updateOfficer(editingId, {
           name: formData.name,
@@ -282,6 +288,11 @@ export default function OfficerManagement() {
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                     className="w-full px-3 py-2 border border-outline rounded-lg focus:ring-2 focus:ring-primary"
                   />
+                  {showCreateForm && (
+                    <p className="mt-1 text-xs text-outline">
+                      Jika diisi, NIP dan password login akan dikirim otomatis ke email ini.
+                    </p>
+                  )}
                 </div>
 
                 <div>

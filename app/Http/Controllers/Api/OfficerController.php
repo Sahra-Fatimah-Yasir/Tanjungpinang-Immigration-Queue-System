@@ -4,8 +4,11 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Officer;
+use App\Notifications\OfficerAccountCreated;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 class OfficerController extends Controller
 {
@@ -93,9 +96,34 @@ class OfficerController extends Controller
             'role' => $request->role ?? 'OFFICER',
         ]);
 
+        $emailSent = false;
+        $emailDeliveryFailed = false;
+
+        if ($officer->email) {
+            try {
+                $officer->notify(new OfficerAccountCreated(
+                    $officer->nip,
+                    $request->password,
+                    $officer->role,
+                ));
+
+                $emailSent = true;
+            } catch (Throwable $exception) {
+                $emailDeliveryFailed = true;
+
+                Log::warning('Failed to send officer account email.', [
+                    'officer_id' => $officer->id,
+                    'email' => $officer->email,
+                    'error' => $exception->getMessage(),
+                ]);
+            }
+        }
+
         return response()->json([
             'success' => true,
-            'message' => 'Petugas berhasil ditambahkan',
+            'message' => $emailSent
+                ? 'Petugas berhasil ditambahkan dan kredensial login sudah dikirim ke email.'
+                : 'Petugas berhasil ditambahkan. Kredensial login belum terkirim ke email.',
             'data' => [
                 'officer' => [
                     'id' => $officer->id,
@@ -104,6 +132,8 @@ class OfficerController extends Controller
                     'email' => $officer->email,
                     'role' => $officer->role,
                 ],
+                'email_sent' => $emailSent,
+                'email_delivery_failed' => $emailDeliveryFailed,
             ],
         ], 201);
     }

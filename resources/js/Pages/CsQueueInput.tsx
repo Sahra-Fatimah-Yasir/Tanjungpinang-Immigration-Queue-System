@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import { Ticket } from "lucide-react";
-import { QRCodeSVG } from "qrcode.react";
+import { Printer, Ticket } from "lucide-react";
 import TicketPrint from "../Components/TicketPrint.js";
 import { formatDateWib, formatTimeWib } from "../lib/dateTime.ts";
 
@@ -12,6 +11,122 @@ interface Service {
   is_priority: boolean;
 }
 
+const AUTO_PRINT_SETTING_KEY = "cs-auto-print-ticket";
+const PRINT_FRAME_ID = "ticket-print-frame";
+
+const buildPrintDocument = (printContents: string) => `
+  <!doctype html>
+  <html>
+    <head>
+      <title>Print Tiket</title>
+      <style>
+        @page {
+          size: 72mm 180mm;
+          margin: 0;
+        }
+
+        html,
+        body {
+          margin: 0;
+          padding: 0;
+          width: 72mm;
+          min-width: 72mm;
+          background: #ffffff;
+          color: #000000;
+          font-family: Arial, Helvetica, sans-serif;
+        }
+
+        * {
+          box-sizing: border-box;
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+
+        img,
+        svg {
+          display: block;
+        }
+
+        #ticket-print {
+          width: 72mm !important;
+          max-width: 72mm !important;
+          box-shadow: none !important;
+        }
+      </style>
+    </head>
+    <body>
+      ${printContents}
+    </body>
+  </html>
+`;
+
+const waitForPrintImages = (frameDocument: Document) => {
+  const images = Array.from(frameDocument.images);
+
+  if (images.length === 0) {
+    return Promise.resolve();
+  }
+
+  return Promise.all(
+    images.map(
+      (image) =>
+        new Promise<void>((resolve) => {
+          if (image.complete) {
+            resolve();
+            return;
+          }
+
+          image.onload = () => resolve();
+          image.onerror = () => resolve();
+        })
+    )
+  ).then(() => undefined);
+};
+
+const printTicketMarkup = (printContents: string) => {
+  document.getElementById(PRINT_FRAME_ID)?.remove();
+
+  const frame = document.createElement("iframe");
+  frame.id = PRINT_FRAME_ID;
+  frame.title = "Cetak tiket antrian";
+  frame.style.position = "fixed";
+  frame.style.right = "0";
+  frame.style.bottom = "0";
+  frame.style.width = "1px";
+  frame.style.height = "1px";
+  frame.style.border = "0";
+  frame.style.opacity = "0";
+  frame.style.visibility = "hidden";
+
+  document.body.appendChild(frame);
+
+  const frameWindow = frame.contentWindow;
+  const frameDocument = frame.contentDocument || frameWindow?.document;
+
+  if (!frameWindow || !frameDocument) {
+    frame.remove();
+    return false;
+  }
+
+  frameDocument.open();
+  frameDocument.write(buildPrintDocument(printContents));
+  frameDocument.close();
+
+  const cleanup = () => window.setTimeout(() => frame.remove(), 1000);
+  frameWindow.addEventListener("afterprint", cleanup, { once: true });
+
+  waitForPrintImages(frameDocument).then(() => {
+    window.setTimeout(() => {
+      frameWindow.focus();
+      frameWindow.print();
+    }, 250);
+  });
+
+  window.setTimeout(cleanup, 60000);
+
+  return true;
+};
+
 export default function CsQueueInput() {
   const [name, setName] = useState("");
   const [nik, setNik] = useState("");
@@ -21,6 +136,14 @@ export default function CsQueueInput() {
   const [loading, setLoading] = useState(false);
   const [servicesLoading, setServicesLoading] = useState(true);
   const [error, setError] = useState("");
+  const [autoPrintTicket, setAutoPrintTicket] = useState(() => {
+    try {
+      return window.localStorage.getItem(AUTO_PRINT_SETTING_KEY) !== "false";
+    } catch {
+      return true;
+    }
+  });
+  const [pendingAutoPrint, setPendingAutoPrint] = useState(false);
 
   const selectedServiceData = services.find((s) => s.id === selectedService);
 
@@ -47,56 +170,49 @@ export default function CsQueueInput() {
     loadServices();
   }, []);
 
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        AUTO_PRINT_SETTING_KEY,
+        autoPrintTicket ? "true" : "false"
+      );
+    } catch {
+      // Keep printing usable even when browser storage is unavailable.
+    }
+  }, [autoPrintTicket]);
+
   const handlePrintTicket = () => {
     const printContents = document.getElementById("ticket-print")?.outerHTML;
-    const printWindow = window.open("", "", "width=260,height=700");
 
-    if (!printWindow || !printContents) return;
+    if (!printContents) {
+      setError("Tiket belum siap dicetak.");
+      return;
+    }
 
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>Print Tiket</title>
-          <style>
-            @page {
-              size: 58mm auto;
-              margin: 0;
-            }
+    const printStarted = printTicketMarkup(printContents);
 
-            html, body {
-              margin: 0;
-              padding: 0;
-              width: 58mm;
-              background: #ffffff;
-              color: #000000;
-              font-family: Arial, sans-serif;
-            }
-
-            * {
-              box-sizing: border-box;
-              -webkit-print-color-adjust: exact;
-              print-color-adjust: exact;
-            }
-          </style>
-        </head>
-        <body>
-          ${printContents}
-        </body>
-      </html>
-    `);
-
-    printWindow.document.close();
-
-    setTimeout(() => {
-      printWindow.focus();
-      printWindow.print();
-      printWindow.close();
-    }, 300);
+    if (!printStarted) {
+      setError("Gagal membuka dialog cetak. Coba tekan tombol Print Tiket.");
+    }
   };
+
+  useEffect(() => {
+    if (!result || !pendingAutoPrint) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      handlePrintTicket();
+      setPendingAutoPrint(false);
+    }, 350);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [result, pendingAutoPrint]);
 
   const generate = async () => {
     setError("");
     setResult(null);
+    setPendingAutoPrint(false);
 
     if (!name.trim()) {
       setError("Nama pemohon wajib diisi.");
@@ -138,7 +254,11 @@ export default function CsQueueInput() {
         service_desc:
           selectedServiceData?.description || data.data.queue.service.description,
         kanim: "Kantor Imigrasi Kelas I TPI Tanjungpinang",
-        date: formatDateWib(new Date()),
+        date: formatDateWib(new Date(), {
+          day: "2-digit",
+          month: "long",
+          year: "numeric",
+        }),
         time: formatTimeWib(new Date()),
         tracking_url:
           data.data.queue.tracking_url ||
@@ -146,6 +266,7 @@ export default function CsQueueInput() {
       };
 
       setResult(ticketData);
+      setPendingAutoPrint(autoPrintTicket);
       setName("");
       setNik("");
       setSelectedService(null);
@@ -286,13 +407,24 @@ export default function CsQueueInput() {
             </div>
           </div>
 
-          <div className="flex justify-end">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-outline-variant bg-surface-container-lowest px-4 py-3 text-sm font-bold text-primary shadow-sm">
+              <input
+                type="checkbox"
+                checked={autoPrintTicket}
+                onChange={(event) => setAutoPrintTicket(event.target.checked)}
+                className="h-5 w-5 rounded border-outline-variant text-primary focus:ring-primary"
+              />
+              Auto cetak setelah generate
+            </label>
+
             <button
               type="button"
               onClick={generate}
               disabled={loading || servicesLoading || !selectedService}
-              className="rounded-xl bg-gradient-to-br from-primary to-primary-container px-10 py-4 font-bold text-white shadow-lg shadow-primary/20 transition-all hover:scale-[1.02] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-br from-primary to-primary-container px-10 py-4 font-bold text-white shadow-lg shadow-primary/20 transition-all hover:scale-[1.02] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100"
             >
+              <Printer className="h-5 w-5" />
               {loading ? "Memproses..." : "Generate Tiket"}
             </button>
           </div>
@@ -308,83 +440,18 @@ export default function CsQueueInput() {
             <div className="mt-6 rounded-2xl border border-dashed border-outline-variant bg-white p-6 text-center">
               {result ? (
                 <>
-                  <img
-                    src="/images/logo.png"
-                    alt="Logo Imigrasi"
-                    className="mx-auto h-14 w-14 object-contain"
-                  />
-
-                  <p className="mt-3 text-xs font-bold uppercase tracking-widest text-outline">
-                    {result.kanim}
-                  </p>
-
-                  <div className="my-6 border-y border-dashed border-outline-variant py-6">
-                    <p className="text-sm font-bold uppercase tracking-widest text-outline">
-                      Nomor Antrian
-                    </p>
-                    <h1 className="mt-2 text-6xl font-black text-primary">
-                      {result.ticket_number}
-                    </h1>
-                  </div>
-
-                  <div className="space-y-2 text-left text-sm">
-                    <div className="flex justify-between gap-4">
-                      <span className="text-outline">Nama</span>
-                      <span className="font-bold text-primary">
-                        {result.customer_name}
-                      </span>
-                    </div>
-
-                    <div className="flex justify-between gap-4">
-                      <span className="text-outline">NIK/No Paspor</span>
-                      <span className="font-bold text-primary">
-                        {result.identity_number || "-"}
-                      </span>
-                    </div>
-
-                    <div className="flex justify-between gap-4">
-                      <span className="text-outline">Layanan</span>
-                      <span className="font-bold text-primary">
-                        {result.service_title}
-                      </span>
-                    </div>
-
-                    <div className="flex justify-between gap-4">
-                      <span className="text-outline">Tanggal</span>
-                      <span className="font-bold text-primary">
-                        {result.date}
-                      </span>
-                    </div>
-
-                    <div className="flex justify-between gap-4">
-                      <span className="text-outline">Waktu</span>
-                      <span className="font-bold text-primary">
-                        {result.time}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="mt-6 rounded-2xl border border-outline-variant bg-surface-container-low p-4">
-                    <div className="flex flex-col items-center gap-3">
-                      <div className="rounded-xl bg-white p-3 shadow-sm">
-                        <QRCodeSVG value={result.tracking_url} size={132} />
-                      </div>
-                      <div className="text-center">
-                        <p className="text-xs font-black uppercase tracking-widest text-primary">
-                          QR Tracking Antrian
-                        </p>
-                        <p className="mt-1 text-xs font-medium text-outline">
-                          Scan untuk memantau status antrian secara realtime.
-                        </p>
-                      </div>
+                  <div className="overflow-x-auto pb-1">
+                    <div className="mx-auto w-fit">
+                      <TicketPrint id="ticket-preview" data={result} />
                     </div>
                   </div>
 
                   <button
                     type="button"
                     onClick={handlePrintTicket}
-                    className="mt-6 w-full rounded-xl border border-primary px-6 py-3 font-bold text-primary transition hover:bg-primary hover:text-white"
+                    className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-primary px-6 py-3 font-bold text-primary transition hover:bg-primary hover:text-white"
                   >
+                    <Printer className="h-5 w-5" />
                     Print Tiket
                   </button>
                 </>
