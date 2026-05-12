@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Events\QueueCalled;
+use App\Events\QueueDashboardUpdated;
 use App\Http\Controllers\Controller;
 use App\Models\Officer;
 use App\Models\OfficerActivity;
@@ -137,6 +139,7 @@ class QueueController extends Controller
         });
 
         $queue->load('serviceCategory');
+        QueueDashboardUpdated::dispatch('created', $queue);
 
         return response()->json([
             'success' => true,
@@ -318,12 +321,13 @@ class QueueController extends Controller
         $nextQueue->loadMissing('serviceCategory');
 
         // Log activity
-        OfficerActivity::create([
+        $activity = OfficerActivity::create([
             'officer_id' => $officer->id,
             'queue_number_id' => $nextQueue->id,
             'action' => 'CALL_TICKET',
             'timestamp' => now(),
         ]);
+        QueueCalled::dispatch($activity);
 
         return response()->json([
             'success' => true,
@@ -391,11 +395,75 @@ class QueueController extends Controller
             'status' => 'SERVING',
             'served_at' => now(),
         ]);
+        QueueDashboardUpdated::dispatch('served', $queue->refresh());
 
         return response()->json([
             'success' => true,
             'message' => 'Antrian sedang dilayani',
             'data' => ['queue' => $queue],
+        ], 200);
+    }
+
+    public function repeat(Request $request, int $queueId)
+    {
+        $this->queueDayService->prepareOperationalDay();
+
+        $officer = $request->user('sanctum');
+        $queue = QueueNumber::with(['serviceCategory', 'counter'])->findOrFail($queueId);
+
+        if (! $queue->date?->isSameDay(QueueNumber::operationalDate())) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Antrian ini bukan antrian aktif hari ini',
+            ], 422);
+        }
+
+        if ($queue->counter_id !== $officer->counter_id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Antrian ini tidak berada di loket petugas',
+            ], 403);
+        }
+
+        if (! in_array($queue->status, ['CALLING', 'SERVING'], true)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Hanya antrian aktif yang bisa dipanggil ulang',
+            ], 422);
+        }
+
+        $activity = OfficerActivity::create([
+            'officer_id' => $officer->id,
+            'queue_number_id' => $queue->id,
+            'action' => 'CALL_TICKET',
+            'timestamp' => now(),
+        ]);
+        QueueCalled::dispatch($activity);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Antrian berhasil dipanggil ulang',
+            'data' => [
+                'queue' => [
+                    'id' => $queue->id,
+                    'ticket_number' => $queue->ticket_number,
+                    'customer_name' => $queue->customer_name,
+                    'identity_number' => $queue->identity_number,
+                    'status' => $queue->status,
+                    'called_at' => $queue->called_at,
+                    'service' => [
+                        'id' => $queue->serviceCategory->id,
+                        'code' => $queue->serviceCategory->code,
+                        'name' => $queue->serviceCategory->name,
+                        'is_priority' => $queue->serviceCategory->is_priority,
+                    ],
+                    'counter' => [
+                        'id' => $queue->counter?->id,
+                        'code' => $queue->counter?->full_code,
+                        'number' => $queue->counter?->counter_number,
+                    ],
+                ],
+            ],
         ], 200);
     }
 
@@ -447,6 +515,7 @@ class QueueController extends Controller
             'action' => 'COMPLETE_TICKET',
             'timestamp' => now(),
         ]);
+        QueueDashboardUpdated::dispatch('completed', $queue->refresh());
 
         return response()->json([
             'success' => true,
@@ -512,6 +581,7 @@ class QueueController extends Controller
             'action' => 'SKIP_TICKET',
             'timestamp' => now(),
         ]);
+        QueueDashboardUpdated::dispatch('skipped', $queue->refresh());
 
         return response()->json([
             'success' => true,

@@ -62,6 +62,7 @@ Route::prefix('/officer')->group(function () {
         // Queue management
         Route::middleware(EnsureOfficerRole::class . ':OFFICER')->prefix('/queue')->group(function () {
             Route::post('/call-next', [QueueController::class, 'callNext']);
+            Route::post('/{queueId}/repeat', [QueueController::class, 'repeat']);
             Route::post('/{queueId}/serve', [QueueController::class, 'serve']);
             Route::post('/{queueId}/complete', [QueueController::class, 'complete']);
             Route::post('/{queueId}/skip', [QueueController::class, 'skip']);

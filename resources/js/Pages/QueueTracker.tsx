@@ -11,6 +11,7 @@ import {
   UserRound,
 } from "lucide-react";
 import { formatTimeWib } from "../lib/dateTime.ts";
+import { createRealtimeEcho } from "../lib/realtime.ts";
 
 interface TrackData {
   queue: {
@@ -105,6 +106,24 @@ export default function QueueTracker() {
     loadTrackData();
     const interval = window.setInterval(() => loadTrackData(true), 5000);
     return () => window.clearInterval(interval);
+  }, [trackingKey]);
+
+  useEffect(() => {
+    if (!trackingKey) return;
+
+    const echo = createRealtimeEcho();
+    const channel = echo.channel("queue-display");
+    const refreshTracking = () => {
+      loadTrackData(true);
+    };
+
+    channel.listen(".queue.called", refreshTracking);
+    channel.listen(".queue.updated", refreshTracking);
+
+    return () => {
+      echo.leave("queue-display");
+      echo.disconnect();
+    };
   }, [trackingKey]);
 
   const activeStep = useMemo(() => {

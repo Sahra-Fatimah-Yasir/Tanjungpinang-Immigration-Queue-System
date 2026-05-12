@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Events\QueueCalled;
+use App\Events\QueueDashboardUpdated;
 use App\Models\Admin;
 use App\Models\Counter;
 use App\Models\Officer;
@@ -10,6 +12,7 @@ use App\Models\QueueNumber;
 use App\Models\ServiceCategory;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Hash;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -86,6 +89,32 @@ class QueueSystemTest extends TestCase
             'customer_name' => 'Budi Santoso',
             'identity_number' => '3171000000000001',
         ]);
+    }
+
+    public function test_queue_generation_broadcasts_dashboard_update(): void
+    {
+        $this->actingAsQueueCreator();
+
+        $service = ServiceCategory::create([
+            'code' => 'B',
+            'name' => 'M-Paspor',
+            'description' => 'Layanan paspor',
+            'is_priority' => false,
+            'max_counters' => 4,
+        ]);
+
+        Event::fake([QueueDashboardUpdated::class]);
+
+        $this->postJson('/api/queue/generate', [
+            'service_category_id' => $service->id,
+            'customer_name' => 'Budi Santoso',
+        ])->assertCreated();
+
+        Event::assertDispatched(
+            QueueDashboardUpdated::class,
+            fn (QueueDashboardUpdated $event) => $event->reason === 'created'
+                && $event->queue?->ticket_number === 'B-001'
+        );
     }
 
     public function test_queue_can_be_tracked_by_tracking_code(): void
@@ -330,6 +359,54 @@ class QueueSystemTest extends TestCase
             'counter_id' => $counter->id,
             'status' => 'SERVED',
         ]);
+    }
+
+    public function test_calling_queue_broadcasts_call_event(): void
+    {
+        $service = ServiceCategory::create([
+            'code' => 'C',
+            'name' => 'M-Paspor',
+            'description' => 'Layanan jadwal paspor',
+            'is_priority' => false,
+            'max_counters' => 4,
+        ]);
+
+        $counter = Counter::create([
+            'service_category_id' => $service->id,
+            'code' => $service->code,
+            'counter_number' => 1,
+            'status' => 'ACTIVE',
+        ]);
+
+        $officer = Officer::create([
+            'nip' => '198501151978031111',
+            'name' => 'Officer Realtime',
+            'email' => 'officer-realtime@example.test',
+            'password' => Hash::make('password123'),
+            'counter_id' => $counter->id,
+            'status' => 'ACTIVE',
+            'role' => 'OFFICER',
+        ]);
+
+        QueueNumber::create([
+            'service_category_id' => $service->id,
+            'ticket_number' => 'C-001',
+            'customer_name' => 'Siti Aminah',
+            'status' => 'WAITING',
+            'date' => today(),
+        ]);
+
+        Sanctum::actingAs($officer);
+        Event::fake([QueueCalled::class]);
+
+        $this->postJson('/api/officer/queue/call-next', [
+            'service_category_id' => $service->id,
+        ])->assertOk();
+
+        Event::assertDispatched(
+            QueueCalled::class,
+            fn (QueueCalled $event) => $event->activity->queueNumber?->ticket_number === 'C-001'
+        );
     }
 
     public function test_queue_duration_calculations_are_never_negative(): void

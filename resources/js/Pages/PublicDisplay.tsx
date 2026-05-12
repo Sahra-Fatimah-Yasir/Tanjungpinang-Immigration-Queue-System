@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   CheckCircle2,
@@ -10,9 +10,12 @@ import {
   Sparkles,
   Ticket,
   UsersRound,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import Header from "../Components/Header.tsx";
 import Ticker from "../Components/Ticker.tsx";
+import { createRealtimeEcho } from "../lib/realtime.ts";
 
 interface PublicQueueItem {
   service: {
@@ -45,6 +48,7 @@ interface DisplayQueueListItem {
   service_name: string;
   service_code: string;
   customer_name?: string | null;
+  speech_text?: string | null;
   status: "CALLING" | "SERVING" | "WAITING";
   counter_label: string | null;
 }
@@ -62,6 +66,7 @@ interface CallAnnouncement {
   announced_at: string;
   ticket_number: string;
   customer_name?: string | null;
+  speech_text?: string | null;
   status: "CALLING" | "SERVING";
   service: {
     id?: number | null;
@@ -74,6 +79,20 @@ interface CallAnnouncement {
 
 const ANNOUNCEMENT_DISPLAY_MS = 8000;
 const INITIAL_ANNOUNCEMENT_GRACE_MS = 10000;
+const DASHBOARD_POLL_INTERVAL_MS = 5000;
+const AUDIO_ENABLED_KEY = "public-display-audio-enabled";
+const digitSpeechMap: Record<string, string> = {
+  "0": "nol",
+  "1": "satu",
+  "2": "dua",
+  "3": "tiga",
+  "4": "empat",
+  "5": "lima",
+  "6": "enam",
+  "7": "tujuh",
+  "8": "delapan",
+  "9": "sembilan",
+};
 
 const loadingServices: PublicQueueItem[] = [
   {
@@ -144,18 +163,135 @@ const getQueueStatusLabel = (status: DisplayQueueListItem["status"]) => {
   return "Menunggu";
 };
 
+const formatTicketForSpeech = (ticketNumber: string) => {
+  return ticketNumber
+    .replace(/-/g, " ")
+    .split("")
+    .map((character) => digitSpeechMap[character] || character)
+    .join(" ");
+};
+
+const buildAnnouncementSpeech = (queue: DisplayQueueListItem) => {
+  const speechText = queue.speech_text?.trim();
+  if (speechText) return speechText;
+
+  const ticket = formatTicketForSpeech(queue.ticket_number);
+  const counter = queue.counter_label || "loket pelayanan";
+  const customerName = queue.customer_name?.trim();
+  const customer = customerName ? ` atas nama ${customerName}` : "";
+
+  return `Nomor antrian ${ticket}${customer}. Silakan menuju ${counter}.`;
+};
+
+const getIndonesianVoice = () => {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+    return null;
+  }
+
+  return (
+    window.speechSynthesis
+      .getVoices()
+      .find((voice) => voice.lang.toLowerCase().startsWith("id")) || null
+  );
+};
+
 export default function PublicDisplay() {
   const [queues, setQueues] = useState<PublicQueueItem[]>([]);
   const [histories, setHistories] = useState<RecentHistory[]>([]);
   const [announcementQueue, setAnnouncementQueue] = useState<DisplayQueueListItem[]>([]);
   const [activeAnnouncement, setActiveAnnouncement] =
     useState<DisplayQueueListItem | null>(null);
+  const [audioEnabled, setAudioEnabled] = useState(() => {
+    try {
+      return window.localStorage.getItem(AUDIO_ENABLED_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
   const [loading, setLoading] = useState(false);
   const seenAnnouncementIds = useRef<Set<number>>(new Set());
   const displayStartedAt = useRef(Date.now());
+  const loadingDashboard = useRef(false);
+  const queuesRef = useRef<PublicQueueItem[]>([]);
 
-  const loadDashboard = async () => {
-    setLoading(true);
+  useEffect(() => {
+    queuesRef.current = queues;
+  }, [queues]);
+
+  const enqueueAnnouncements = useCallback(
+    (announcements: CallAnnouncement[], activeQueues: PublicQueueItem[] = []) => {
+      const currentTicketNames = new Map<string, string>();
+      activeQueues.forEach((queue) => {
+        const ticket = queue.current_ticket;
+        const customerName = ticket?.customer_name?.trim();
+
+        if (ticket?.ticket_number && customerName) {
+          currentTicketNames.set(ticket.ticket_number, customerName);
+        }
+      });
+
+      const freshAnnouncements = [...announcements]
+        .sort((first, second) => first.id - second.id)
+        .filter((announcement) => {
+          if (seenAnnouncementIds.current.has(announcement.id)) return false;
+
+          const announcedAt = new Date(announcement.announced_at).getTime();
+          return (
+            Number.isFinite(announcedAt) &&
+            announcedAt >= displayStartedAt.current - INITIAL_ANNOUNCEMENT_GRACE_MS
+          );
+        })
+        .map((announcement) => {
+          seenAnnouncementIds.current.add(announcement.id);
+          const customerName =
+            announcement.customer_name?.trim() ||
+            currentTicketNames.get(announcement.ticket_number) ||
+            null;
+          const counterLabel = formatCounterLabel({
+            id: announcement.id,
+            ticket_number: announcement.ticket_number,
+            customer_name: customerName,
+            status: announcement.status,
+            counter: announcement.counter,
+            counter_number: announcement.counter_number,
+          });
+          const fallbackSpeechText = customerName
+            ? buildAnnouncementSpeech({
+                id: `announcement-${announcement.id}`,
+                ticket_number: announcement.ticket_number,
+                service_name: announcement.service.name || "-",
+                service_code: announcement.service.code || "-",
+                customer_name: customerName,
+                speech_text: null,
+                status: "CALLING",
+                counter_label: counterLabel,
+              })
+            : null;
+
+          return {
+            id: `announcement-${announcement.id}`,
+            ticket_number: announcement.ticket_number,
+            service_name: announcement.service.name || "-",
+            service_code: announcement.service.code || "-",
+            customer_name: customerName,
+            speech_text: announcement.speech_text?.trim() || fallbackSpeechText,
+            status: "CALLING" as const,
+            counter_label: counterLabel,
+          };
+        });
+
+      if (freshAnnouncements.length > 0) {
+        setAnnouncementQueue((current) => [...current, ...freshAnnouncements]);
+      }
+    },
+    []
+  );
+
+  const loadDashboard = async (showLoading = false) => {
+    if (loadingDashboard.current) return;
+
+    loadingDashboard.current = true;
+    if (showLoading) setLoading(true);
     try {
       const response = await fetch("/api/queue/public-dashboard", {
         headers: { Accept: "application/json" },
@@ -166,56 +302,41 @@ export default function PublicDisplay() {
         throw new Error(result.message || "Gagal memuat display antrian");
       }
 
-      setQueues(result.data.active_queues || []);
+      const activeQueues = result.data.active_queues || [];
+      setQueues(activeQueues);
       setHistories(result.data.recent_history || []);
-
-      const freshAnnouncements = [...(result.data.call_announcements || [])]
-        .sort((first: CallAnnouncement, second: CallAnnouncement) => first.id - second.id)
-        .filter((announcement: CallAnnouncement) => {
-          if (seenAnnouncementIds.current.has(announcement.id)) return false;
-
-          const announcedAt = new Date(announcement.announced_at).getTime();
-          return (
-            Number.isFinite(announcedAt) &&
-            announcedAt >= displayStartedAt.current - INITIAL_ANNOUNCEMENT_GRACE_MS
-          );
-        })
-        .map((announcement: CallAnnouncement) => {
-          seenAnnouncementIds.current.add(announcement.id);
-
-          return {
-            id: `announcement-${announcement.id}`,
-            ticket_number: announcement.ticket_number,
-            service_name: announcement.service.name || "-",
-            service_code: announcement.service.code || "-",
-            customer_name: announcement.customer_name ?? null,
-            status: "CALLING" as const,
-            counter_label: formatCounterLabel({
-              id: announcement.id,
-              ticket_number: announcement.ticket_number,
-              customer_name: announcement.customer_name,
-              status: announcement.status,
-              counter: announcement.counter,
-              counter_number: announcement.counter_number,
-            }),
-          };
-        });
-
-      if (freshAnnouncements.length > 0) {
-        setAnnouncementQueue((current) => [...current, ...freshAnnouncements]);
-      }
+      enqueueAnnouncements(result.data.call_announcements || [], activeQueues);
     } catch (err) {
       console.error("Failed to load public dashboard:", err);
     } finally {
-      setLoading(false);
+      loadingDashboard.current = false;
+      if (showLoading) setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadDashboard();
-    const interval = window.setInterval(loadDashboard, 5000);
+    loadDashboard(true);
+    const interval = window.setInterval(() => loadDashboard(), DASHBOARD_POLL_INTERVAL_MS);
     return () => window.clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    const echo = createRealtimeEcho();
+    const channel = echo.channel("queue-display");
+
+    channel.listen(".queue.called", (announcement: CallAnnouncement) => {
+      enqueueAnnouncements([announcement], queuesRef.current);
+      loadDashboard();
+    });
+    channel.listen(".queue.updated", () => {
+      loadDashboard();
+    });
+
+    return () => {
+      echo.leave("queue-display");
+      echo.disconnect();
+    };
+  }, [enqueueAnnouncements]);
 
   useEffect(() => {
     if (activeAnnouncement || announcementQueue.length === 0) return;
@@ -228,12 +349,51 @@ export default function PublicDisplay() {
   useEffect(() => {
     if (!activeAnnouncement) return;
 
+    if (
+      audioEnabled &&
+      typeof window !== "undefined" &&
+      "speechSynthesis" in window &&
+      "SpeechSynthesisUtterance" in window
+    ) {
+      window.speechSynthesis.cancel();
+
+      const utterance = new SpeechSynthesisUtterance(
+        buildAnnouncementSpeech(activeAnnouncement)
+      );
+      utterance.lang = "id-ID";
+      utterance.rate = 0.88;
+      utterance.pitch = 1;
+      utterance.volume = 1;
+
+      const voice = getIndonesianVoice();
+      if (voice) utterance.voice = voice;
+
+      window.speechSynthesis.speak(utterance);
+    }
+
     const timeout = window.setTimeout(() => {
       setActiveAnnouncement(null);
     }, ANNOUNCEMENT_DISPLAY_MS);
 
-    return () => window.clearTimeout(timeout);
-  }, [activeAnnouncement]);
+    return () => {
+      window.clearTimeout(timeout);
+      if (
+        audioEnabled &&
+        typeof window !== "undefined" &&
+        "speechSynthesis" in window
+      ) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, [activeAnnouncement, audioEnabled]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(AUDIO_ENABLED_KEY, String(audioEnabled));
+    } catch {
+      // Audio still works when storage is unavailable.
+    }
+  }, [audioEnabled]);
 
   const currentQueues = useMemo(() => {
     return queues.flatMap<DisplayQueueListItem>((item) => {
@@ -246,6 +406,7 @@ export default function PublicDisplay() {
           service_name: item.service.name,
           service_code: item.service.code,
           customer_name: item.current_ticket.customer_name ?? null,
+          speech_text: null,
           status: item.current_ticket.status,
           counter_label: formatCounterLabel(item.current_ticket),
         },
@@ -261,6 +422,7 @@ export default function PublicDisplay() {
         service_name: item.service.name,
         service_code: item.service.code,
         status: "WAITING" as const,
+        speech_text: null,
         counter_label: null,
       }))
     );
@@ -292,6 +454,24 @@ export default function PublicDisplay() {
           <LogIn className="h-3.5 w-3.5" />
           Staff
         </Link>
+
+        <button
+          type="button"
+          onClick={() => setAudioEnabled((current) => !current)}
+          title={audioEnabled ? "Matikan suara panggilan" : "Aktifkan suara panggilan"}
+          aria-label={audioEnabled ? "Matikan suara panggilan" : "Aktifkan suara panggilan"}
+          className={`absolute bottom-12 left-3 z-50 inline-flex h-9 w-9 items-center justify-center rounded-md border shadow-sm transition ${
+            audioEnabled
+              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+              : "border-slate-200 bg-white/90 text-slate-500 hover:text-blue-700"
+          }`}
+        >
+          {audioEnabled ? (
+            <Volume2 className="h-4.5 w-4.5" />
+          ) : (
+            <VolumeX className="h-4.5 w-4.5" />
+          )}
+        </button>
 
         <Header
           compact

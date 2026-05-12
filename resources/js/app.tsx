@@ -23,6 +23,10 @@ import CounterManagement from './Pages/Admin/CounterManagement.tsx';
 import OfficerManagement from './Pages/Admin/OfficerManagement.tsx';
 import ActiveQueue from './Pages/Admin/ActiveQueue.tsx';
 import ServiceReports from './Pages/Admin/ServiceReports.tsx';
+import { configureEcho } from '@laravel/echo-react';
+import { getRealtimeEchoOptions } from './lib/realtime.ts';
+
+configureEcho(getRealtimeEchoOptions());
 
 function App() {
   return (

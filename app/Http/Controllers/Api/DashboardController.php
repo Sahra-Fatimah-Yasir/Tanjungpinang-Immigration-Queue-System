@@ -33,6 +33,43 @@ class DashboardController extends Controller
         return $values->isEmpty() ? null : round((float) $values->avg(), 2);
     }
 
+    private function ticketForSpeech(?string $ticketNumber): string
+    {
+        $digits = [
+            '0' => 'nol',
+            '1' => 'satu',
+            '2' => 'dua',
+            '3' => 'tiga',
+            '4' => 'empat',
+            '5' => 'lima',
+            '6' => 'enam',
+            '7' => 'tujuh',
+            '8' => 'delapan',
+            '9' => 'sembilan',
+        ];
+
+        return collect(str_split(str_replace('-', ' ', (string) $ticketNumber)))
+            ->map(fn (string $character) => $digits[$character] ?? $character)
+            ->implode(' ');
+    }
+
+    private function callSpeechText(?QueueNumber $queue): ?string
+    {
+        if (! $queue) {
+            return null;
+        }
+
+        $ticket = $this->ticketForSpeech($queue->ticket_number);
+        $customerName = filled($queue->customer_name)
+            ? ' atas nama ' . trim((string) $queue->customer_name)
+            : '';
+        $counter = $queue->counter?->counter_number
+            ? 'Loket ' . $queue->counter->counter_number
+            : ($queue->counter?->full_code ?? 'loket pelayanan');
+
+        return "Nomor antrian {$ticket}{$customerName}. Silakan menuju {$counter}.";
+    }
+
     /**
      * Get admin dashboard statistics
      * 
@@ -258,7 +295,8 @@ class DashboardController extends Controller
                     'id' => $activity->id,
                     'announced_at' => $activity->timestamp?->toIso8601String(),
                     'ticket_number' => $queue?->ticket_number,
-                    'customer_name' => $queue?->customer_name,
+                    'customer_name' => filled($queue?->customer_name) ? (string) $queue->customer_name : null,
+                    'speech_text' => $this->callSpeechText($queue),
                     'status' => $queue?->status,
                     'service' => [
                         'id' => $queue?->serviceCategory?->id,

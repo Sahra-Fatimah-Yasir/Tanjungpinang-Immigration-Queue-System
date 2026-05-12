@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Header from "../Components/Header.tsx";
+import { createRealtimeEcho } from "../lib/realtime.ts";
 import {
   AlertCircle,
   CheckCircle2,
@@ -140,50 +141,23 @@ export default function OfficerDashboard() {
     return () => window.clearInterval(interval);
   }, []);
 
-  const speakMessage = ({
-    ticketNumber,
-    counterNumber,
-    serviceName,
-    customerName,
-    isPriority,
-  }: {
-    ticketNumber?: string | undefined;
-    counterNumber?: number | undefined;
-    serviceName?: string | undefined;
-    customerName?: string | null | undefined;
-    isPriority?: boolean | undefined;
-  }) => {
-    if (!ticketNumber || !counterNumber) return;
+  useEffect(() => {
+    const echo = createRealtimeEcho();
+    const channel = echo.channel("queue-display");
+    const refreshDashboard = () => {
+      loadDashboard();
+    };
 
-    const spokenTicketNumber = ticketNumber.replace("-", " ");
-    const prefix = isPriority || serviceName?.toLowerCase().includes("ramah ham")
-      ? `Nomor antrian layanan ${serviceName || "Ramah HAM"} ${spokenTicketNumber}`
-      : `Nomor antrian ${spokenTicketNumber}`;
+    channel.listen(".queue.called", refreshDashboard);
+    channel.listen(".queue.updated", refreshDashboard);
 
-    const nameSection = customerName ? ` atas nama ${customerName}` : "";
-    const message = `${prefix}${nameSection}, silakan ke loket ${counterNumber}.`;
+    return () => {
+      echo.leave("queue-display");
+      echo.disconnect();
+    };
+  }, []);
 
-    if ("speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(message);
-      utterance.lang = "id-ID";
-      utterance.rate = 0.95;
-      utterance.pitch = 1;
-      window.speechSynthesis.speak(utterance);
-    }
-  };
-
-  const speakTicket = () => {
-    speakMessage({
-      ticketNumber: data?.current_ticket?.ticket_number,
-      counterNumber: data?.counter?.number,
-      serviceName: data?.current_ticket?.service?.name ?? data?.counter?.service.name,
-      customerName: data?.current_ticket?.customer_name,
-      isPriority: data?.current_ticket?.service?.is_priority ?? data?.counter?.service.is_priority,
-    });
-  };
-
-  const runAction = async (action: "call-next" | "serve" | "complete" | "skip") => {
+  const runAction = async (action: "call-next" | "repeat" | "serve" | "complete" | "skip") => {
     if (!token || !data?.counter) return;
 
     if (action !== "call-next" && !data.current_ticket) return;
@@ -218,18 +192,6 @@ export default function OfficerDashboard() {
 
       if (!response.ok) {
         throw new Error(result.message || "Aksi gagal diproses");
-      }
-
-      if (action === "call-next") {
-        const calledService = result.data?.queue?.service ?? serviceToCall;
-
-        speakMessage({
-          ticketNumber: result.data?.queue?.ticket_number,
-          counterNumber: result.data?.queue?.counter?.number ?? data.counter.number,
-          serviceName: calledService?.name,
-          customerName: result.data?.queue?.customer_name,
-          isPriority: calledService?.is_priority,
-        });
       }
 
       await loadDashboard();
@@ -404,8 +366,8 @@ export default function OfficerDashboard() {
 
                 <button
                   type="button"
-                  onClick={speakTicket}
-                  disabled={!data?.current_ticket}
+                  onClick={() => runAction("repeat")}
+                  disabled={actionLoading || !data?.current_ticket}
                   className="flex items-center justify-center gap-3 rounded-xl border border-outline-variant bg-surface-container-high px-5 py-4 font-bold text-primary transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <RotateCcw className="h-5 w-5" />
