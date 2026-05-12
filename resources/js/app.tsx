@@ -6,6 +6,7 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 
 // Public Pages
+import Login from './Pages/Login.tsx';
 import PublicDisplay from './Pages/PublicDisplay.tsx';
 import QueueTracker from './Pages/QueueTracker.tsx';
 
@@ -29,6 +30,7 @@ function App() {
       <Routes>
         {/* Public Routes */}
         <Route path="/" element={<PublicDisplay />} />
+        <Route path="/login" element={<Login />} />
         <Route path="/display" element={<PublicDisplay />} />
         <Route path="/track/:trackingKey" element={<QueueTracker />} />
 

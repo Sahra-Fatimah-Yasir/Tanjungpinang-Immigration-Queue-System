@@ -3,9 +3,9 @@ import { Megaphone } from "lucide-react";
 export default function Ticker() {
   const messages = [
     "Selamat Datang di Kantor Imigrasi Kelas I TPI Tanjungpinang",
-    "KAMI MELAYANI DENGAN HATI DAN INTEGRITAS",
-    "Siapkan berkas asli dan fotokopi Anda untuk mempercepat proses verifikasi",
-    "Pembayaran paspor hanya melalui bank atau pos",
+    "Perhatikan nomor antrian dan loket tujuan pada layar",
+    "Silakan menuju loket saat nomor Anda dipanggil",
+    "Siapkan dokumen sebelum memasuki area layanan",
     "Terima kasih telah menunggu dengan tertib",
   ];
 

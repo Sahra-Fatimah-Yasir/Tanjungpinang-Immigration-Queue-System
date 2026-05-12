@@ -31,8 +31,13 @@ export default function ActiveQueue() {
     setLoading(true);
     setError('');
     try {
+      const token = localStorage.getItem('auth_token');
+
       const response = await fetch('/api/queue/active', {
-        headers: { Accept: 'application/json' },
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
       });
       const result = await response.json();
 

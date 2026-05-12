@@ -12,8 +12,9 @@ export default function AdminLogin() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const token = localStorage.getItem('auth_token');
-    if (token) navigate('/admin/dashboard');
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('admin_data');
+    localStorage.removeItem('officer_data');
 
     const savedEmail = localStorage.getItem('admin_email');
     const savedRemember = localStorage.getItem('admin_remember');
@@ -55,6 +56,7 @@ export default function AdminLogin() {
 
       localStorage.setItem('auth_token', data.data.token);
       localStorage.setItem('admin_data', JSON.stringify(data.data.admin));
+      localStorage.removeItem('officer_data');
 
       if (rememberMe) {
         localStorage.setItem('admin_email', email.trim());
@@ -101,7 +103,7 @@ export default function AdminLogin() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value.toLowerCase())}
-              placeholder="admin@gmail.com"
+              placeholder="Email"
               className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-600"
               required
             />

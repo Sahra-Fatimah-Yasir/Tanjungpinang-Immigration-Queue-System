@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import {
   AlertCircle,
   CheckCircle2,
   Clock3,
-  Home,
   Landmark,
   Loader2,
   RefreshCw,
@@ -46,7 +45,6 @@ interface TrackData {
   } | null;
   progress: {
     waiting_ahead: number;
-    estimated_wait_minutes: number;
     updated_at: string;
   };
 }
@@ -140,13 +138,6 @@ export default function QueueTracker() {
             </div>
           </div>
 
-          <Link
-            to="/display"
-            className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-outline-variant text-primary transition hover:bg-surface-container-low"
-            title="Kembali ke display"
-          >
-            <Home className="h-5 w-5" />
-          </Link>
         </div>
       </header>
 
@@ -250,18 +241,11 @@ export default function QueueTracker() {
                   })}
                 </div>
 
-                <div className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="mt-8">
                   <div className="rounded-xl border border-outline-variant p-5">
                     <p className="text-sm font-bold text-outline">Antrian di depan Anda</p>
                     <p className="mt-2 text-4xl font-black text-primary">
                       {data.progress.waiting_ahead}
-                    </p>
-                  </div>
-
-                  <div className="rounded-xl border border-outline-variant p-5">
-                    <p className="text-sm font-bold text-outline">Estimasi tunggu</p>
-                    <p className="mt-2 text-4xl font-black text-primary">
-                      {data.progress.estimated_wait_minutes} mnt
                     </p>
                   </div>
                 </div>

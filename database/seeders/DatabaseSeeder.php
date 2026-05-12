@@ -34,8 +34,8 @@ class DatabaseSeeder extends Seeder
             ],
             [
                 'code' => 'C',
-                'name' => 'Sudah Daftar',
-                'description' => 'Pemohon paspor yang sudah memiliki bukti pendaftaran atau jadwal layanan.',
+                'name' => 'M-Paspor',
+                'description' => 'Jalur tambahan layanan M-Paspor bagi pemohon yang sudah memiliki bukti pendaftaran atau jadwal layanan.',
                 'is_priority' => false,
                 'max_counters' => 4,
             ],

@@ -28,15 +28,13 @@ const rowValueStyle = {
 
 export default function TicketPrint({ data, id = "ticket-print" }: TicketPrintProps) {
   const trackingUrl =
-    data.tracking_url ||
-    `${window.location.origin}/track/${data.tracking_code}`;
+    data.tracking_code && typeof window !== "undefined"
+      ? `${window.location.origin}/track/${data.tracking_code}`
+      : data.tracking_url || "";
   const officeName =
     data.kanim || "Kantor Imigrasi Kelas I TPI Tanjungpinang";
   const serviceCode = String(data.ticket_number || "-").split("-")[0] || "-";
-  const displayTrackLink =
-    data.ticket_number && typeof window !== "undefined"
-      ? `${window.location.origin}/track/${data.ticket_number}`
-      : trackingUrl;
+  const displayTrackLink = trackingUrl;
 
   return (
     <div
@@ -200,7 +198,7 @@ export default function TicketPrint({ data, id = "ticket-print" }: TicketPrintPr
             background: "#ffffff",
           }}
         >
-          <QRCodeSVG value={trackingUrl} size={88} />
+          <QRCodeSVG value={trackingUrl || "-"} size={88} />
         </div>
 
         <div>

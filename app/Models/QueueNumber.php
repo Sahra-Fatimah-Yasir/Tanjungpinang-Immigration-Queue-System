@@ -93,22 +93,58 @@ class QueueNumber extends Model
         return $this->hasMany(OfficerActivity::class);
     }
 
+    private static function durationInMinutes(
+        ?CarbonInterface $start,
+        ?CarbonInterface $end,
+    ): int {
+        if (! $start || ! $end) {
+            return 0;
+        }
+
+        return max(0, (int) $start->diffInMinutes($end));
+    }
+
     // Calculate wait time in minutes
     public function calculateWaitTime(): int
     {
-        if ($this->called_at && $this->created_at) {
-            return (int) $this->called_at->diffInMinutes($this->created_at);
-        }
-        return 0;
+        return self::durationInMinutes($this->created_at, $this->called_at);
     }
 
     // Calculate service time in minutes
     public function calculateServiceTime(): int
     {
-        if ($this->completed_at && $this->served_at) {
-            return (int) $this->completed_at->diffInMinutes($this->served_at);
+        return self::durationInMinutes($this->served_at, $this->completed_at);
+    }
+
+    public function calculateTotalTime(): ?int
+    {
+        if (! $this->created_at || ! $this->completed_at) {
+            return null;
         }
-        return 0;
+
+        return self::durationInMinutes($this->created_at, $this->completed_at);
+    }
+
+    public function resolvedWaitTimeMinutes(): ?int
+    {
+        if ($this->created_at && $this->called_at) {
+            return $this->calculateWaitTime();
+        }
+
+        return $this->wait_time_minutes === null
+            ? null
+            : max(0, (int) $this->wait_time_minutes);
+    }
+
+    public function resolvedServiceTimeMinutes(): ?int
+    {
+        if ($this->served_at && $this->completed_at) {
+            return $this->calculateServiceTime();
+        }
+
+        return $this->service_time_minutes === null
+            ? null
+            : max(0, (int) $this->service_time_minutes);
     }
 
     // Get current status label in Indonesian

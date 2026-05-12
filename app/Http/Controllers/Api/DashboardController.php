@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Counter;
 use App\Models\Officer;
+use App\Models\OfficerActivity;
 use App\Models\QueueNumber;
 use App\Models\ServiceCategory;
 use App\Services\QueueDayService;
@@ -15,6 +16,21 @@ class DashboardController extends Controller
     public function __construct(
         private readonly QueueDayService $queueDayService,
     ) {
+    }
+
+    private function averageMinutes($queues, string $column): ?float
+    {
+        $values = $queues
+            ->map(function (QueueNumber $queue) use ($column) {
+                return match ($column) {
+                    'wait_time_minutes' => $queue->resolvedWaitTimeMinutes(),
+                    'service_time_minutes' => $queue->resolvedServiceTimeMinutes(),
+                    default => $queue->{$column} === null ? null : max(0, (float) $queue->{$column}),
+                };
+            })
+            ->filter(fn ($value) => $value !== null);
+
+        return $values->isEmpty() ? null : round((float) $values->avg(), 2);
     }
 
     /**
@@ -38,8 +54,8 @@ class DashboardController extends Controller
                 'completed' => $todayQueues->where('status', 'SERVED')->count(),
                 'in_progress' => $todayQueues->whereIn('status', ['CALLING', 'SERVING'])->count(),
                 'skipped' => $todayQueues->where('status', 'SKIPPED')->count(),
-                'avg_wait_time' => round($todayQueues->whereNotNull('wait_time_minutes')->avg('wait_time_minutes'), 2),
-                'avg_service_time' => round($todayQueues->whereNotNull('service_time_minutes')->avg('service_time_minutes'), 2),
+                'avg_wait_time' => $this->averageMinutes($todayQueues, 'wait_time_minutes'),
+                'avg_service_time' => $this->averageMinutes($todayQueues, 'service_time_minutes'),
             ],
             'counters' => [
                 'total' => Counter::count(),
@@ -86,6 +102,7 @@ class DashboardController extends Controller
         $officer = $request->user('sanctum');
         $counter = $officer->counter;
         $currentTicket = $officer->currentTicket();
+        $currentTicket?->loadMissing('serviceCategory');
 
         // Get today's statistics for this officer/counter
         $todayQueues = $counter
@@ -93,6 +110,45 @@ class DashboardController extends Controller
                 ->forOperationalDate()
                 ->get()
             : collect();
+
+        $callableServices = collect();
+
+        if ($counter) {
+            $priorityServices = ServiceCategory::where('is_priority', true)
+                ->orderBy('code')
+                ->get();
+
+            $callableServices = $priorityServices
+                ->push($counter->serviceCategory)
+                ->unique('id')
+                ->values();
+        }
+
+        $waitingCounts = $callableServices->isNotEmpty()
+            ? QueueNumber::query()
+                ->selectRaw('service_category_id, COUNT(*) as total')
+                ->whereIn('service_category_id', $callableServices->pluck('id'))
+                ->forOperationalDate()
+                ->where('status', 'WAITING')
+                ->groupBy('service_category_id')
+                ->pluck('total', 'service_category_id')
+            : collect();
+
+        $callableServiceData = $callableServices
+            ->map(function (ServiceCategory $service) use ($waitingCounts) {
+                return [
+                    'id' => $service->id,
+                    'code' => $service->code,
+                    'name' => $service->name,
+                    'is_priority' => $service->is_priority,
+                    'waiting_count' => (int) ($waitingCounts[$service->id] ?? 0),
+                ];
+            })
+            ->values();
+
+        $nextService = $callableServiceData->first(fn ($service) => $service['is_priority'] && $service['waiting_count'] > 0)
+            ?? $callableServiceData->firstWhere('id', $counter?->service_category_id)
+            ?? $callableServiceData->first();
 
         $stats = [
             'counter' => $counter ? [
@@ -108,7 +164,7 @@ class DashboardController extends Controller
             'today' => [
                 'total_served' => $todayQueues->where('status', 'SERVED')->count(),
                 'total_skipped' => $todayQueues->where('status', 'SKIPPED')->count(),
-                'avg_service_time' => round($todayQueues->whereNotNull('service_time_minutes')->avg('service_time_minutes'), 2),
+                'avg_service_time' => $this->averageMinutes($todayQueues, 'service_time_minutes'),
             ],
             'current_ticket' => $currentTicket ? [
                 'id' => $currentTicket->id,
@@ -116,11 +172,16 @@ class DashboardController extends Controller
                 'status' => $currentTicket->status,
                 'customer_name' => $currentTicket->customer_name,
                 'identity_number' => $currentTicket->identity_number,
+                'service' => [
+                    'id' => $currentTicket->serviceCategory->id,
+                    'code' => $currentTicket->serviceCategory->code,
+                    'name' => $currentTicket->serviceCategory->name,
+                    'is_priority' => $currentTicket->serviceCategory->is_priority,
+                ],
             ] : null,
-            'queue_in_waiting' => $counter ? QueueNumber::where('service_category_id', $counter->service_category_id)
-                ->forOperationalDate()
-                ->where('status', 'WAITING')
-                ->count() : 0,
+            'queue_in_waiting' => $callableServiceData->sum('waiting_count'),
+            'callable_services' => $callableServiceData,
+            'next_service' => $nextService,
         ];
 
         return response()->json([
@@ -164,8 +225,9 @@ class DashboardController extends Controller
                     'current_ticket' => $currentTicket ? [
                         'id' => $currentTicket->id,
                         'ticket_number' => $currentTicket->ticket_number,
-                        'status' => $currentTicket->status,
                         'customer_name' => $currentTicket->customer_name,
+                        'status' => $currentTicket->status,
+                        'called_at' => $currentTicket->called_at?->toIso8601String(),
                         'counter' => $currentTicket->counter?->full_code,
                         'counter_number' => $currentTicket->counter?->counter_number,
                     ] : null,
@@ -177,10 +239,38 @@ class DashboardController extends Controller
                         ->map(fn ($queue) => [
                             'id' => $queue->id,
                             'ticket_number' => $queue->ticket_number,
-                            'customer_name' => $queue->customer_name,
                         ]),
                 ];
             });
+
+        $callAnnouncements = OfficerActivity::with(['queueNumber.serviceCategory', 'queueNumber.counter'])
+            ->where('action', 'CALL_TICKET')
+            ->whereHas('queueNumber', fn ($query) => $query->forOperationalDate())
+            ->orderByDesc('id')
+            ->limit(50)
+            ->get()
+            ->sortBy('id')
+            ->values()
+            ->map(function (OfficerActivity $activity) {
+                $queue = $activity->queueNumber;
+
+                return [
+                    'id' => $activity->id,
+                    'announced_at' => $activity->timestamp?->toIso8601String(),
+                    'ticket_number' => $queue?->ticket_number,
+                    'customer_name' => $queue?->customer_name,
+                    'status' => $queue?->status,
+                    'service' => [
+                        'id' => $queue?->serviceCategory?->id,
+                        'code' => $queue?->serviceCategory?->code,
+                        'name' => $queue?->serviceCategory?->name,
+                    ],
+                    'counter' => $queue?->counter?->full_code,
+                    'counter_number' => $queue?->counter?->counter_number,
+                ];
+            })
+            ->filter(fn ($announcement) => $announcement['ticket_number'] && $announcement['announced_at'])
+            ->values();
 
         $recentHistory = QueueNumber::with(['serviceCategory', 'counter'])
             ->forOperationalDate()
@@ -204,6 +294,7 @@ class DashboardController extends Controller
             'success' => true,
             'data' => [
                 'active_queues' => $activeQueues->values(),
+                'call_announcements' => $callAnnouncements,
                 'recent_history' => $recentHistory,
                 'timestamp' => now(),
             ],

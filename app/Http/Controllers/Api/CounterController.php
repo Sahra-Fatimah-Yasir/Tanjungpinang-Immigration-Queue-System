@@ -8,6 +8,7 @@ use App\Models\Officer;
 use App\Models\ServiceCategory;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class CounterController extends Controller
@@ -269,7 +270,17 @@ class CounterController extends Controller
             ], 400);
         }
 
-        $counter->delete();
+        DB::transaction(function () use ($counter): void {
+            Officer::where('counter_id', $counter->id)->update([
+                'counter_id' => null,
+            ]);
+
+            $counter->queueNumbers()->update([
+                'counter_id' => null,
+            ]);
+
+            $counter->delete();
+        });
 
         return response()->json([
             'success' => true,

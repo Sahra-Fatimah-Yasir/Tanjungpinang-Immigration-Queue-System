@@ -14,16 +14,19 @@ import {
   Users,
 } from "lucide-react";
 
+interface QueueService {
+  id: number;
+  code: string;
+  name: string;
+  is_priority: boolean;
+  waiting_count?: number;
+}
+
 interface OfficerDashboardData {
   counter: {
     code: string;
     number: number;
-    service: {
-      id: number;
-      code: string;
-      name: string;
-      is_priority: boolean;
-    };
+    service: QueueService;
   } | null;
   today: {
     total_served: number;
@@ -36,9 +39,36 @@ interface OfficerDashboardData {
     status: "CALLING" | "SERVING";
     customer_name?: string | null;
     identity_number?: string | null;
+    service?: QueueService;
   } | null;
   queue_in_waiting: number;
+  callable_services?: QueueService[];
+  next_service?: QueueService | null;
 }
+
+const resolveCallableServices = (dashboard: OfficerDashboardData | null): QueueService[] => {
+  if (!dashboard) return [];
+
+  if (dashboard.callable_services?.length) {
+    return dashboard.callable_services;
+  }
+
+  return dashboard.counter
+    ? [{ ...dashboard.counter.service, waiting_count: dashboard.queue_in_waiting }]
+    : [];
+};
+
+const resolveSelectedService = (
+  dashboard: OfficerDashboardData | null,
+  selectedServiceId: number | null
+) => {
+  const services = resolveCallableServices(dashboard);
+
+  return services.find((service) => service.id === selectedServiceId)
+    || dashboard?.next_service
+    || services[0]
+    || null;
+};
 
 export default function OfficerDashboard() {
   const navigate = useNavigate();
@@ -46,6 +76,7 @@ export default function OfficerDashboard() {
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState("");
+  const [selectedServiceId, setSelectedServiceId] = useState<number | null>(null);
 
   const token = localStorage.getItem("auth_token");
   const officer = JSON.parse(localStorage.getItem("officer_data") || "{}");
@@ -72,7 +103,30 @@ export default function OfficerDashboard() {
         throw new Error(result.message || "Gagal memuat dashboard petugas");
       }
 
-      setData(result.data);
+      const dashboard = result.data as OfficerDashboardData;
+      const services = resolveCallableServices(dashboard);
+      const priorityWithQueue = services.find(
+        (service) => service.is_priority && (service.waiting_count ?? 0) > 0
+      );
+
+      setData(dashboard);
+      setSelectedServiceId((previousServiceId) => {
+        const previousService = services.find((service) => service.id === previousServiceId);
+        const fallbackServiceId = priorityWithQueue?.id
+          ?? dashboard.next_service?.id
+          ?? services[0]?.id
+          ?? null;
+
+        if (!previousService) {
+          return fallbackServiceId;
+        }
+
+        if (priorityWithQueue && !previousService.is_priority && !dashboard.current_ticket) {
+          return priorityWithQueue.id;
+        }
+
+        return previousServiceId;
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Terjadi kesalahan");
     } finally {
@@ -123,9 +177,9 @@ export default function OfficerDashboard() {
     speakMessage({
       ticketNumber: data?.current_ticket?.ticket_number,
       counterNumber: data?.counter?.number,
-      serviceName: data?.counter?.service.name,
+      serviceName: data?.current_ticket?.service?.name ?? data?.counter?.service.name,
       customerName: data?.current_ticket?.customer_name,
-      isPriority: data?.counter?.service.is_priority,
+      isPriority: data?.current_ticket?.service?.is_priority ?? data?.counter?.service.is_priority,
     });
   };
 
@@ -133,6 +187,9 @@ export default function OfficerDashboard() {
     if (!token || !data?.counter) return;
 
     if (action !== "call-next" && !data.current_ticket) return;
+
+    const serviceToCall = resolveSelectedService(data, selectedServiceId);
+    if (action === "call-next" && !serviceToCall) return;
 
     setActionLoading(true);
     setError("");
@@ -153,7 +210,7 @@ export default function OfficerDashboard() {
       };
 
       if (action === "call-next") {
-        requestOptions.body = JSON.stringify({ service_category_id: data.counter.service.id });
+        requestOptions.body = JSON.stringify({ service_category_id: serviceToCall?.id });
       }
 
       const response = await fetch(url, requestOptions);
@@ -164,12 +221,14 @@ export default function OfficerDashboard() {
       }
 
       if (action === "call-next") {
+        const calledService = result.data?.queue?.service ?? serviceToCall;
+
         speakMessage({
           ticketNumber: result.data?.queue?.ticket_number,
-          counterNumber: data.counter.number,
-          serviceName: data.counter.service.name,
+          counterNumber: result.data?.queue?.counter?.number ?? data.counter.number,
+          serviceName: calledService?.name,
           customerName: result.data?.queue?.customer_name,
-          isPriority: data.counter.service.is_priority,
+          isPriority: calledService?.is_priority,
         });
       }
 
@@ -197,11 +256,20 @@ export default function OfficerDashboard() {
     navigate("/officer/login");
   };
 
+  const callableServices = resolveCallableServices(data);
+  const selectedService = resolveSelectedService(data, selectedServiceId);
+  const hasAdditionalPriority = callableServices.some(
+    (service) => service.is_priority && service.id !== data?.counter?.service.id
+  );
+  const headerSubtitle = data?.counter
+    ? `${data.counter.code} - ${data.counter.service.name}${hasAdditionalPriority ? " + Prioritas" : ""}`
+    : "Loket belum ditugaskan";
+
   return (
     <div className="min-h-screen bg-surface">
       <Header
         title="Dashboard Petugas"
-        subtitle={data?.counter ? `${data.counter.code} - ${data.counter.service.name}` : "Loket belum ditugaskan"}
+        subtitle={headerSubtitle}
         showUser
       />
 
@@ -259,21 +327,79 @@ export default function OfficerDashboard() {
                 <p className="text-2xl font-bold text-on-surface">
                   {data?.current_ticket?.customer_name || "Belum ada antrian aktif"}
                 </p>
+                <p className="text-sm font-bold uppercase tracking-[0.18em] text-secondary">
+                  {data?.current_ticket?.service?.name || selectedService?.name || data?.counter?.service.name || "-"}
+                </p>
                 <p className="flex items-center justify-center gap-2 text-on-surface-variant">
                   <UserRound className="h-4 w-4" />
                   {data?.current_ticket?.identity_number || "-"}
                 </p>
               </div>
 
+              {callableServices.length > 1 && (
+                <div className="mt-8 w-full max-w-3xl rounded-xl border border-outline-variant bg-white p-3 text-left">
+                  <p className="px-1 text-xs font-bold uppercase tracking-[0.18em] text-outline">
+                    Antrean Yang Dipanggil
+                  </p>
+                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {callableServices.map((service) => {
+                      const selected = selectedService?.id === service.id;
+
+                      return (
+                        <button
+                          key={service.id}
+                          type="button"
+                          onClick={() => setSelectedServiceId(service.id)}
+                          className={`flex min-h-[68px] items-center justify-between gap-3 rounded-lg border px-4 py-3 text-left transition ${
+                            selected
+                              ? "border-primary bg-primary text-white shadow-sm"
+                              : "border-outline-variant bg-surface-container-lowest text-primary hover:bg-surface-container-low"
+                          }`}
+                        >
+                          <span className="flex min-w-0 items-center gap-3">
+                            <span
+                              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-sm font-black ${
+                                selected
+                                  ? "bg-white text-primary"
+                                  : service.is_priority
+                                  ? "bg-secondary/15 text-secondary"
+                                  : "bg-primary/10 text-primary"
+                              }`}
+                            >
+                              {service.code}
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block truncate text-sm font-extrabold">
+                                {service.name}
+                              </span>
+                              <span className={`block text-xs font-semibold ${selected ? "text-white/75" : "text-outline"}`}>
+                                {service.is_priority ? "Prioritas" : "Layanan utama"}
+                              </span>
+                            </span>
+                          </span>
+                          <span
+                            className={`shrink-0 rounded-full px-3 py-1 text-xs font-black ${
+                              selected ? "bg-white/15 text-white" : "bg-surface-container-high text-primary"
+                            }`}
+                          >
+                            {service.waiting_count ?? 0}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div className="mt-12 grid w-full max-w-3xl grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <button
                   type="button"
                   onClick={() => runAction("call-next")}
-                  disabled={actionLoading || !data?.counter}
+                  disabled={actionLoading || !data?.counter || !selectedService}
                   className="flex items-center justify-center gap-3 rounded-xl bg-primary px-5 py-4 font-bold text-white shadow-lg shadow-primary/10 transition hover:scale-[1.02] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Megaphone className="h-5 w-5" />
-                  Panggil
+                  {selectedService ? `Panggil ${selectedService.code}` : "Panggil"}
                 </button>
 
                 <button

@@ -8,6 +8,7 @@ use App\Models\OfficerActivity;
 use App\Models\QueueNumber;
 use App\Models\ServiceCategory;
 use App\Services\QueueDayService;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\DB;
@@ -18,6 +19,39 @@ class QueueController extends Controller
     public function __construct(
         private readonly QueueDayService $queueDayService,
     ) {
+    }
+
+    private function trackingUrl(Request $request, string $trackingCode): string
+    {
+        return rtrim($request->getSchemeAndHttpHost(), '/') . "/track/{$trackingCode}";
+    }
+
+    private function activityLabel(string $action): string
+    {
+        return match ($action) {
+            'LOGIN' => 'Login',
+            'LOGOUT' => 'Logout',
+            'CALL_TICKET' => 'Panggil Antrian',
+            'COMPLETE_TICKET' => 'Selesaikan Antrian',
+            'SKIP_TICKET' => 'Lewati Antrian',
+            'BREAK' => 'Istirahat',
+            default => $action,
+        };
+    }
+
+    private function averageMinutes($queues, string $column): ?float
+    {
+        $values = $queues
+            ->map(function (QueueNumber $queue) use ($column) {
+                return match ($column) {
+                    'wait_time_minutes' => $queue->resolvedWaitTimeMinutes(),
+                    'service_time_minutes' => $queue->resolvedServiceTimeMinutes(),
+                    default => $queue->{$column} === null ? null : max(0, (float) $queue->{$column}),
+                };
+            })
+            ->filter(fn ($value) => $value !== null);
+
+        return $values->isEmpty() ? null : round((float) $values->avg(), 2);
     }
 
     /**
@@ -121,19 +155,19 @@ class QueueController extends Controller
                     'status' => $queue->status,
                     'created_at' => $queue->created_at,
                     'tracking_code' => $queue->tracking_code,
-                    'tracking_url' => url("/track/{$queue->tracking_code}"),
+                    'tracking_url' => $this->trackingUrl($request, $queue->tracking_code),
                 ],
             ],
         ], 201);
     }
 
     /**
-     * Track queue status by ticket number for QR visitors.
+     * Track queue status by QR tracking code.
      *
-     * @param string $ticketNumber
+     * @param string $trackingKey
      * @return \Illuminate\Http\JsonResponse
      */
-    public function track(string $trackingKey)
+    public function track(Request $request, string $trackingKey)
     {
         $this->queueDayService->prepareOperationalDay();
 
@@ -142,16 +176,9 @@ class QueueController extends Controller
             ->first();
 
         if (! $queue) {
-            $queue = QueueNumber::with(['serviceCategory', 'counter'])
-                ->where('ticket_number', strtoupper($trackingKey))
-                ->forOperationalDate()
-                ->first();
-        }
-
-        if (! $queue) {
             return response()->json([
                 'success' => false,
-                'message' => 'Nomor antrian tidak ditemukan untuk hari ini',
+                'message' => 'Tracking antrian tidak ditemukan',
             ], 404);
         }
 
@@ -173,10 +200,6 @@ class QueueController extends Controller
             ->orderByDesc('updated_at')
             ->first();
 
-        $estimatedWaitMinutes = $queue->status === 'WAITING'
-            ? max(0, ($waitingAhead + 1) * 5)
-            : 0;
-
         return response()->json([
             'success' => true,
             'data' => [
@@ -192,7 +215,7 @@ class QueueController extends Controller
                     'served_at' => $queue->served_at,
                     'completed_at' => $queue->completed_at,
                     'tracking_code' => $queue->tracking_code,
-                    'tracking_url' => url("/track/{$queue->tracking_code}"),
+                    'tracking_url' => $this->trackingUrl($request, $queue->tracking_code),
                 ],
                 'service' => [
                     'id' => $queue->serviceCategory->id,
@@ -213,7 +236,6 @@ class QueueController extends Controller
                 ] : null,
                 'progress' => [
                     'waiting_ahead' => $waitingAhead,
-                    'estimated_wait_minutes' => $estimatedWaitMinutes,
                     'updated_at' => now(),
                 ],
             ],
@@ -236,6 +258,7 @@ class QueueController extends Controller
 
         $officer = $request->user('sanctum');
         $counter = $officer->counter;
+        $service = ServiceCategory::findOrFail($request->service_category_id);
 
         if (! $counter) {
             return response()->json([
@@ -244,14 +267,14 @@ class QueueController extends Controller
             ], 422);
         }
 
-        if ((int) $request->service_category_id !== (int) $counter->service_category_id) {
+        if ((int) $service->id !== (int) $counter->service_category_id && ! $service->is_priority) {
             return response()->json([
                 'success' => false,
-                'message' => 'Petugas hanya dapat memanggil antrian sesuai layanan loketnya',
+                'message' => 'Petugas hanya dapat memanggil antrian layanan loketnya atau layanan prioritas',
             ], 422);
         }
 
-        $nextQueue = DB::transaction(function () use ($officer, $request) {
+        $nextQueue = DB::transaction(function () use ($officer, $service) {
             $activeQueue = QueueNumber::where('counter_id', $officer->counter_id)
                 ->forOperationalDate()
                 ->current()
@@ -265,7 +288,7 @@ class QueueController extends Controller
                 ], 422));
             }
 
-            $nextQueue = QueueNumber::where('service_category_id', $request->service_category_id)
+            $nextQueue = QueueNumber::where('service_category_id', $service->id)
                 ->forOperationalDate()
                 ->where('status', 'WAITING')
                 ->orderBy('sequence_number')
@@ -292,6 +315,8 @@ class QueueController extends Controller
             ], 404);
         }
 
+        $nextQueue->loadMissing('serviceCategory');
+
         // Log activity
         OfficerActivity::create([
             'officer_id' => $officer->id,
@@ -311,9 +336,16 @@ class QueueController extends Controller
                     'identity_number' => $nextQueue->identity_number,
                     'status' => 'CALLING',
                     'called_at' => $nextQueue->called_at,
+                    'service' => [
+                        'id' => $nextQueue->serviceCategory->id,
+                        'code' => $nextQueue->serviceCategory->code,
+                        'name' => $nextQueue->serviceCategory->name,
+                        'is_priority' => $nextQueue->serviceCategory->is_priority,
+                    ],
                     'counter' => [
                         'id' => $counter->id,
                         'code' => $counter->full_code,
+                        'number' => $counter->counter_number,
                     ],
                 ],
             ],
@@ -358,13 +390,6 @@ class QueueController extends Controller
         $queue->update([
             'status' => 'SERVING',
             'served_at' => now(),
-        ]);
-
-        OfficerActivity::create([
-            'officer_id' => $officer->id,
-            'queue_number_id' => $queue->id,
-            'action' => 'CALL_TICKET',
-            'timestamp' => now(),
         ]);
 
         return response()->json([
@@ -509,13 +534,186 @@ class QueueController extends Controller
             'total_queues' => $todayQueues->count(),
             'completed' => $todayQueues->where('status', 'SERVED')->count(),
             'skipped' => $todayQueues->where('status', 'SKIPPED')->count(),
-            'avg_wait_time' => round($todayQueues->whereNotNull('wait_time_minutes')->avg('wait_time_minutes'), 2),
-            'avg_service_time' => round($todayQueues->whereNotNull('service_time_minutes')->avg('service_time_minutes'), 2),
+            'avg_wait_time' => $this->averageMinutes($todayQueues, 'wait_time_minutes'),
+            'avg_service_time' => $this->averageMinutes($todayQueues, 'service_time_minutes'),
         ];
 
         return response()->json([
             'success' => true,
             'data' => $stats,
+        ], 200);
+    }
+
+    /**
+     * Get complete queue report data for Excel export.
+     *
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function report(Request $request)
+    {
+        $this->queueDayService->prepareOperationalDay();
+
+        $validated = $request->validate([
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date'],
+        ]);
+
+        $from = isset($validated['from'])
+            ? CarbonImmutable::parse($validated['from'])->startOfDay()
+            : QueueNumber::operationalDate();
+        $to = isset($validated['to'])
+            ? CarbonImmutable::parse($validated['to'])->startOfDay()
+            : $from;
+
+        if ($to->lt($from)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Tanggal akhir tidak boleh lebih awal dari tanggal awal.',
+            ], 422);
+        }
+
+        $queues = QueueNumber::with([
+                'serviceCategory',
+                'counter.serviceCategory',
+                'activities.officer',
+            ])
+            ->whereDate('date', '>=', $from->toDateString())
+            ->whereDate('date', '<=', $to->toDateString())
+            ->orderBy('date')
+            ->orderBy('service_category_id')
+            ->orderBy('sequence_number')
+            ->get();
+
+        $summary = [
+            'total_queues' => $queues->count(),
+            'waiting' => $queues->where('status', 'WAITING')->count(),
+            'calling' => $queues->where('status', 'CALLING')->count(),
+            'serving' => $queues->where('status', 'SERVING')->count(),
+            'completed' => $queues->where('status', 'SERVED')->count(),
+            'skipped' => $queues->where('status', 'SKIPPED')->count(),
+            'avg_wait_time' => $this->averageMinutes($queues, 'wait_time_minutes'),
+            'avg_service_time' => $this->averageMinutes($queues, 'service_time_minutes'),
+        ];
+
+        $byService = $queues
+            ->groupBy('service_category_id')
+            ->map(function ($serviceQueues) {
+                $service = $serviceQueues->first()->serviceCategory;
+
+                return [
+                    'service_id' => $service?->id,
+                    'service_code' => $service?->code,
+                    'service_name' => $service?->name,
+                    'is_priority' => (bool) ($service?->is_priority ?? false),
+                    'total_queues' => $serviceQueues->count(),
+                    'waiting' => $serviceQueues->where('status', 'WAITING')->count(),
+                    'calling' => $serviceQueues->where('status', 'CALLING')->count(),
+                    'serving' => $serviceQueues->where('status', 'SERVING')->count(),
+                    'completed' => $serviceQueues->where('status', 'SERVED')->count(),
+                    'skipped' => $serviceQueues->where('status', 'SKIPPED')->count(),
+                    'avg_wait_time' => $this->averageMinutes($serviceQueues, 'wait_time_minutes'),
+                    'avg_service_time' => $this->averageMinutes($serviceQueues, 'service_time_minutes'),
+                ];
+            })
+            ->sortBy('service_code')
+            ->values();
+
+        $queueRows = $queues->map(function (QueueNumber $queue) use ($request) {
+            $activities = $queue->activities
+                ->sortBy('timestamp')
+                ->values();
+            $calledActivity = $activities->firstWhere('action', 'CALL_TICKET');
+            $completedActivity = $activities->firstWhere('action', 'COMPLETE_TICKET');
+            $skippedActivity = $activities->firstWhere('action', 'SKIP_TICKET');
+            $lastActivity = $activities->filter(fn ($activity) => $activity->officer !== null)->last();
+
+            return [
+                'id' => $queue->id,
+                'ticket_number' => $queue->ticket_number,
+                'sequence_number' => $queue->sequence_number,
+                'tracking_code' => $queue->tracking_code,
+                'tracking_url' => $queue->tracking_code ? $this->trackingUrl($request, $queue->tracking_code) : null,
+                'customer_name' => $queue->customer_name,
+                'identity_number' => $queue->identity_number,
+                'status' => $queue->status,
+                'status_label' => $queue->status_label,
+                'date' => $queue->date?->toDateString(),
+                'created_at' => $queue->created_at?->toIso8601String(),
+                'called_at' => $queue->called_at?->toIso8601String(),
+                'served_at' => $queue->served_at?->toIso8601String(),
+                'completed_at' => $queue->completed_at?->toIso8601String(),
+                'updated_at' => $queue->updated_at?->toIso8601String(),
+                'wait_time_minutes' => $queue->resolvedWaitTimeMinutes(),
+                'service_time_minutes' => $queue->resolvedServiceTimeMinutes(),
+                'total_time_minutes' => $queue->calculateTotalTime(),
+                'service' => [
+                    'id' => $queue->serviceCategory?->id,
+                    'code' => $queue->serviceCategory?->code,
+                    'name' => $queue->serviceCategory?->name,
+                    'description' => $queue->serviceCategory?->description,
+                    'is_priority' => (bool) ($queue->serviceCategory?->is_priority ?? false),
+                    'max_counters' => $queue->serviceCategory?->max_counters,
+                ],
+                'counter' => $queue->counter ? [
+                    'id' => $queue->counter->id,
+                    'code' => $queue->counter->full_code,
+                    'number' => $queue->counter->counter_number,
+                    'status' => $queue->counter->status,
+                    'service_code' => $queue->counter->serviceCategory?->code,
+                    'service_name' => $queue->counter->serviceCategory?->name,
+                ] : null,
+                'officers' => [
+                    'called_by' => $calledActivity?->officer ? [
+                        'id' => $calledActivity->officer->id,
+                        'nip' => $calledActivity->officer->nip,
+                        'name' => $calledActivity->officer->name,
+                    ] : null,
+                    'completed_by' => $completedActivity?->officer ? [
+                        'id' => $completedActivity->officer->id,
+                        'nip' => $completedActivity->officer->nip,
+                        'name' => $completedActivity->officer->name,
+                    ] : null,
+                    'skipped_by' => $skippedActivity?->officer ? [
+                        'id' => $skippedActivity->officer->id,
+                        'nip' => $skippedActivity->officer->nip,
+                        'name' => $skippedActivity->officer->name,
+                    ] : null,
+                    'last_handled_by' => $lastActivity?->officer ? [
+                        'id' => $lastActivity->officer->id,
+                        'nip' => $lastActivity->officer->nip,
+                        'name' => $lastActivity->officer->name,
+                    ] : null,
+                ],
+                'activities' => $activities->map(fn ($activity) => [
+                    'id' => $activity->id,
+                    'action' => $activity->action,
+                    'action_label' => $this->activityLabel($activity->action),
+                    'notes' => $activity->notes,
+                    'timestamp' => $activity->timestamp?->toIso8601String(),
+                    'officer' => $activity->officer ? [
+                        'id' => $activity->officer->id,
+                        'nip' => $activity->officer->nip,
+                        'name' => $activity->officer->name,
+                        'email' => $activity->officer->email,
+                        'phone' => $activity->officer->phone,
+                        'role' => $activity->officer->role,
+                    ] : null,
+                ])->values(),
+            ];
+        });
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'date_range' => [
+                    'from' => $from->toDateString(),
+                    'to' => $to->toDateString(),
+                    'generated_at' => now()->toIso8601String(),
+                ],
+                'summary' => $summary,
+                'by_service' => $byService,
+                'queues' => $queueRows,
+            ],
         ], 200);
     }
 }

@@ -45,7 +45,11 @@ class OfficerAuthController extends Controller
         ]);
 
         // Create token
-        $token = $officer->createToken('api-token')->plainTextToken;
+        $abilities = $officer->role === 'CS'
+            ? ['officer', 'queue:create']
+            : ['officer', 'queue:manage'];
+
+        $token = $officer->createToken('officer-api-token', $abilities)->plainTextToken;
 
         return response()->json([
             'success' => true,

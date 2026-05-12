@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import Sidebar from '../../Components/Sidebar.tsx';
 import Header from '../../Components/Header.tsx';
-import { Edit3, Trash2, Plus, Key } from 'lucide-react';
+import { Edit3, Trash2, Plus, Key, RefreshCw } from 'lucide-react';
 import { useAdminAPI } from '../../lib/useAdminAPI.ts';
 import { cn } from '../../lib/utils.ts';
 
@@ -23,6 +23,20 @@ type OfficerForm = Partial<Officer> & {
   password?: string;
   password_confirmation?: string;
 };
+
+const passwordWords = ['Kanim', 'Paspor', 'Loket', 'Antrian', 'TPI', 'Imigrasi'];
+const passwordSymbols = ['!', '#', '@', '$'];
+
+const generateOfficerPassword = () => {
+  const word = passwordWords[Math.floor(Math.random() * passwordWords.length)] || 'Kanim';
+  const symbol = passwordSymbols[Math.floor(Math.random() * passwordSymbols.length)] || '!';
+  const number = Math.floor(1000 + Math.random() * 9000);
+
+  return `${word}${number}${symbol}Tpi`;
+};
+
+const getRoleLabel = (role?: Officer['role']) =>
+  role === 'CS' ? 'Customer Service' : 'Officer Loket';
 
 export default function OfficerManagement() {
   const {
@@ -79,6 +93,8 @@ export default function OfficerManagement() {
   };
 
   const handleCreateStart = () => {
+    const generatedPassword = generateOfficerPassword();
+
     resetMessages();
     setFormData({
       nip: '',
@@ -87,19 +103,35 @@ export default function OfficerManagement() {
       phone: '',
       status: 'ACTIVE',
       role: 'OFFICER',
-      password: '',
-      password_confirmation: '',
+      password: generatedPassword,
+      password_confirmation: generatedPassword,
     });
     setShowCreateForm(true);
     setEditingId(null);
   };
 
+  const handleGeneratePassword = () => {
+    const generatedPassword = generateOfficerPassword();
+
+    setFormData({
+      ...formData,
+      password: generatedPassword,
+      password_confirmation: generatedPassword,
+    });
+  };
+
   const validateForm = () => {
     if (!formData?.nip?.trim()) return 'NIP wajib diisi.';
+    if (formData.nip.length !== 18) return 'NIP harus 18 digit.';
     if (!formData?.name?.trim()) return 'Nama wajib diisi.';
+    if (showCreateForm && !formData?.email?.trim()) {
+      return 'Email wajib diisi agar NIP, role, dan password login bisa dikirim.';
+    }
+    if (formData?.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+      return 'Format email tidak valid.';
+    }
 
     if (showCreateForm) {
-      if (formData.nip.length !== 18) return 'NIP harus 18 digit.';
       if (!formData.password || formData.password.length < 6) {
         return 'Password minimal 6 karakter.';
       }
@@ -124,6 +156,7 @@ export default function OfficerManagement() {
 
     try {
       if (showCreateForm) {
+        const roleLabel = getRoleLabel(formData.role);
         const createResult = await createOfficer({
           nip: formData.nip,
           name: formData.name,
@@ -136,14 +169,17 @@ export default function OfficerManagement() {
         } as any);
 
         if (createResult?.email_sent) {
-          setSuccessMessage('Officer berhasil ditambahkan. Username/NIP dan password login sudah dikirim ke email.');
+          setSuccessMessage(`${roleLabel} berhasil ditambahkan. NIP, role, dan password login sudah dikirim ke email.`);
+        } else if (createResult?.email_not_configured) {
+          setSuccessMessage(`${roleLabel} berhasil ditambahkan, tetapi SMTP belum aktif. Atur MAIL_MAILER=smtp agar email masuk ke inbox petugas.`);
         } else if (formData.email) {
-          setSuccessMessage('Officer berhasil ditambahkan, tetapi email kredensial belum berhasil dikirim. Cek konfigurasi mail server.');
+          setSuccessMessage(`${roleLabel} berhasil ditambahkan, tetapi email kredensial belum berhasil dikirim. Cek konfigurasi mail server.`);
         } else {
-          setSuccessMessage('Officer berhasil ditambahkan. Isi email officer jika ingin kredensial dikirim otomatis.');
+          setSuccessMessage(`${roleLabel} berhasil ditambahkan. Isi email petugas jika ingin kredensial dikirim otomatis.`);
         }
       } else if (editingId) {
         await updateOfficer(editingId, {
+          nip: formData.nip,
           name: formData.name,
           email: formData.email || null,
           phone: formData.phone || null,
@@ -194,6 +230,7 @@ export default function OfficerManagement() {
 
   const handleResetPassword = async (officerId: number) => {
     resetMessages();
+    const officer = officers.find((item) => item.id === officerId);
 
     const newPassword = prompt('Masukkan password baru minimal 6 karakter:');
 
@@ -205,8 +242,18 @@ export default function OfficerManagement() {
     }
 
     try {
-      await resetOfficerPassword(officerId, newPassword);
-      setSuccessMessage('Password officer berhasil direset.');
+      const resetResult = await resetOfficerPassword(officerId, newPassword);
+      const roleLabel = getRoleLabel(officer?.role);
+
+      if (resetResult?.email_sent) {
+        setSuccessMessage(`Password ${roleLabel} berhasil direset dan dikirim ke email.`);
+      } else if (resetResult?.email_not_configured) {
+        setSuccessMessage(`Password ${roleLabel} berhasil direset, tetapi SMTP belum aktif sehingga email belum terkirim.`);
+      } else if (officer?.email) {
+        setSuccessMessage(`Password ${roleLabel} berhasil direset, tetapi email kredensial belum berhasil dikirim.`);
+      } else {
+        setSuccessMessage(`Password ${roleLabel} berhasil direset. Isi email petugas jika ingin password baru dikirim otomatis.`);
+      }
     } catch (err: any) {
       const message =
         err?.response?.data?.message ||
@@ -264,10 +311,18 @@ export default function OfficerManagement() {
                   <input
                     type="text"
                     value={formData?.nip || ''}
-                    onChange={(e) => setFormData({ ...formData, nip: e.target.value })}
-                    disabled={!showCreateForm}
-                    className="w-full px-3 py-2 border border-outline rounded-lg focus:ring-2 focus:ring-primary disabled:bg-gray-100"
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        nip: e.target.value.replace(/\D/g, '').slice(0, 18),
+                      })
+                    }
+                    maxLength={18}
+                    className="w-full px-3 py-2 border border-outline rounded-lg focus:ring-2 focus:ring-primary"
                   />
+                  <p className="mt-1 text-xs text-outline">
+                    NIP menjadi username login officer.
+                  </p>
                 </div>
 
                 <div>
@@ -290,7 +345,7 @@ export default function OfficerManagement() {
                   />
                   {showCreateForm && (
                     <p className="mt-1 text-xs text-outline">
-                      Jika diisi, NIP dan password login akan dikirim otomatis ke email ini.
+                      Wajib diisi untuk mengirim NIP, role, dan password login.
                     </p>
                   )}
                 </div>
@@ -308,13 +363,26 @@ export default function OfficerManagement() {
                 {showCreateForm && (
                   <>
                     <div>
-                      <label className="block text-sm font-medium text-outline mb-1">Password</label>
+                      <div className="mb-1 flex items-center justify-between gap-3">
+                        <label className="block text-sm font-medium text-outline">Password</label>
+                        <button
+                          type="button"
+                          onClick={handleGeneratePassword}
+                          className="inline-flex items-center gap-1 text-xs font-bold text-primary hover:text-secondary"
+                        >
+                          <RefreshCw className="h-3.5 w-3.5" />
+                          Generate
+                        </button>
+                      </div>
                       <input
-                        type="password"
+                        type="text"
                         value={formData?.password || ''}
                         onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                         className="w-full px-3 py-2 border border-outline rounded-lg focus:ring-2 focus:ring-primary"
                       />
+                      <p className="mt-1 text-xs text-outline">
+                        Password otomatis dibuat lebih unik dan akan ikut dikirim lewat email petugas.
+                      </p>
                     </div>
 
                     <div>
@@ -393,8 +461,8 @@ export default function OfficerManagement() {
             </div>
           )}
 
-          <div className="bg-surface-container-lowest rounded-xl overflow-hidden shadow-sm">
-            <table className="w-full text-left border-collapse">
+          <div className="overflow-x-auto rounded-xl bg-surface-container-lowest shadow-sm">
+            <table className="min-w-[1120px] w-full text-left border-collapse">
               <thead>
                 <tr className="bg-surface-container-low border-none">
                   <th className="px-6 py-4 font-label text-[10px] font-bold text-outline uppercase tracking-wider">NIP</th>
@@ -404,7 +472,9 @@ export default function OfficerManagement() {
                   <th className="px-6 py-4 font-label text-[10px] font-bold text-outline uppercase tracking-wider">Counter</th>
                   <th className="px-6 py-4 font-label text-[10px] font-bold text-outline uppercase tracking-wider">Role</th>
                   <th className="px-6 py-4 font-label text-[10px] font-bold text-outline uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-4 font-label text-[10px] font-bold text-outline uppercase tracking-wider">Action</th>
+                  <th className="sticky right-0 z-10 bg-surface-container-low px-6 py-4 font-label text-[10px] font-bold text-outline uppercase tracking-wider shadow-[-8px_0_12px_rgba(15,23,42,0.06)]">
+                    Action
+                  </th>
                 </tr>
               </thead>
 
@@ -436,27 +506,38 @@ export default function OfficerManagement() {
                       </span>
                     </td>
 
-                    <td className="px-6 py-5 flex gap-2">
+                    <td className="sticky right-0 z-10 bg-surface-container-lowest px-6 py-5 shadow-[-8px_0_12px_rgba(15,23,42,0.06)]">
+                      <div className="flex min-w-[164px] items-center gap-2">
                       <button
+                        type="button"
                         onClick={() => handleEditStart(officer)}
-                        className="text-primary hover:text-secondary transition-colors"
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-blue-100 bg-blue-50 text-blue-700 transition hover:bg-blue-100"
+                        title="Edit officer"
+                        aria-label={`Edit ${officer.name}`}
                       >
                         <Edit3 className="w-5 h-5" />
                       </button>
 
                       <button
+                        type="button"
                         onClick={() => handleResetPassword(officer.id)}
-                        className="text-blue-500 hover:text-blue-700 transition-colors"
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-amber-100 bg-amber-50 text-amber-700 transition hover:bg-amber-100"
+                        title="Reset password"
+                        aria-label={`Reset password ${officer.name}`}
                       >
                         <Key className="w-5 h-5" />
                       </button>
 
                       <button
+                        type="button"
                         onClick={() => handleDelete(officer.id)}
-                        className="text-red-500 hover:text-red-700 transition-colors"
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-red-100 bg-red-50 text-red-700 transition hover:bg-red-100"
+                        title="Hapus officer"
+                        aria-label={`Hapus ${officer.name}`}
                       >
                         <Trash2 className="w-5 h-5" />
                       </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

@@ -2,8 +2,8 @@
 
 namespace App\Notifications;
 
+use App\Mail\OfficerAccountCreatedMail;
 use Illuminate\Bus\Queueable;
-use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
 class OfficerAccountCreated extends Notification
@@ -25,18 +25,30 @@ class OfficerAccountCreated extends Notification
         return ['mail'];
     }
 
-    public function toMail(object $notifiable): MailMessage
+    public function toMail(object $notifiable): OfficerAccountCreatedMail
     {
+        $name = $notifiable->name ?? 'Petugas';
         $roleLabel = $this->role === 'CS' ? 'Customer Service' : 'Officer Loket';
+        $officeName = 'Kantor Imigrasi Kelas I TPI Tanjungpinang';
 
-        return (new MailMessage)
-            ->subject('Akun Petugas Sistem Antrian')
-            ->greeting("Halo {$notifiable->name},")
-            ->line('Akun petugas Anda untuk Sistem Antrian Kantor Imigrasi Kelas I TPI Tanjungpinang sudah dibuat.')
-            ->line("Role: {$roleLabel}")
-            ->line("Username / NIP: {$this->nip}")
-            ->line("Password: {$this->temporaryPassword}")
-            ->action('Login Officer', url('/officer/login'))
-            ->line('Mohon simpan data login ini dengan aman dan jangan membagikannya kepada pihak lain.');
+        $mail = new OfficerAccountCreatedMail(
+            name: $name,
+            officeName: $officeName,
+            roleLabel: $roleLabel,
+            nip: $this->nip,
+            temporaryPassword: $this->temporaryPassword,
+            loginUrl: url('/officer/login'),
+            logoPath: public_path('images/logo.png'),
+        );
+
+        $recipient = method_exists($notifiable, 'routeNotificationFor')
+            ? $notifiable->routeNotificationFor('mail')
+            : ($notifiable->email ?? null);
+
+        if ($recipient) {
+            $mail->to($recipient);
+        }
+
+        return $mail;
     }
 }

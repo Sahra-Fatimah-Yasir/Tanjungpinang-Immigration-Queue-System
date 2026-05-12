@@ -150,7 +150,7 @@ export const useAdminAPI = () => {
     });
 
     setError(null);
-    return response.data;
+    return response.data.data || response.data;
   } catch (err: any) {
     const message = err.response?.data?.message || 'Failed to reset password';
     setError(message);

@@ -13,6 +13,10 @@ export default function OfficerLogin() {
   const [touched, setTouched] = useState({ nip: false, password: false });
 
   useEffect(() => {
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('admin_data');
+    localStorage.removeItem('officer_data');
+
     const savedNip = localStorage.getItem('officer_nip');
     const savedRemember = localStorage.getItem('officer_remember');
     if (savedNip && savedRemember === 'true') {
@@ -71,6 +75,15 @@ export default function OfficerLogin() {
     // Simpan token & data
     localStorage.setItem('auth_token', data.data.token);
     localStorage.setItem('officer_data', JSON.stringify(data.data.officer));
+    localStorage.removeItem('admin_data');
+
+    if (rememberMe) {
+      localStorage.setItem('officer_nip', nip.trim());
+      localStorage.setItem('officer_remember', 'true');
+    } else {
+      localStorage.removeItem('officer_nip');
+      localStorage.removeItem('officer_remember');
+    }
 
     if (data.data.officer.role === "CS") {
       navigate("/cs");

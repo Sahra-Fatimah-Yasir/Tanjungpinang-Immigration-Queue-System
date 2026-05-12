@@ -1,7 +1,12 @@
 import { useEffect, useState } from "react";
-import { Printer, Ticket } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { LogOut, Printer, Ticket } from "lucide-react";
 import TicketPrint from "../Components/TicketPrint.js";
 import { formatDateWib, formatTimeWib } from "../lib/dateTime.ts";
+import {
+  printThermalTicket,
+  testThermalPrinterConnection,
+} from "../lib/thermalPrinter.ts";
 
 interface Service {
   id: number;
@@ -12,7 +17,18 @@ interface Service {
 }
 
 const AUTO_PRINT_SETTING_KEY = "cs-auto-print-ticket";
+const DIRECT_THERMAL_SETTING_KEY = "cs-direct-thermal-ticket";
+const THERMAL_PRINTER_NAME_KEY = "cs-thermal-printer-name";
 const PRINT_FRAME_ID = "ticket-print-frame";
+const DEFAULT_THERMAL_PRINTER_NAME = "TM-T82";
+
+const buildTrackingUrl = (trackingCode?: string | null, fallbackUrl?: string | null) => {
+  if (trackingCode) {
+    return `${window.location.origin}/track/${trackingCode}`;
+  }
+
+  return fallbackUrl || "";
+};
 
 const buildPrintDocument = (printContents: string) => `
   <!doctype html>
@@ -128,12 +144,14 @@ const printTicketMarkup = (printContents: string) => {
 };
 
 export default function CsQueueInput() {
+  const navigate = useNavigate();
   const [name, setName] = useState("");
   const [nik, setNik] = useState("");
   const [services, setServices] = useState<Service[]>([]);
   const [selectedService, setSelectedService] = useState<number | null>(null);
   const [result, setResult] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [authChecking, setAuthChecking] = useState(true);
   const [servicesLoading, setServicesLoading] = useState(true);
   const [error, setError] = useState("");
   const [autoPrintTicket, setAutoPrintTicket] = useState(() => {
@@ -143,9 +161,88 @@ export default function CsQueueInput() {
       return true;
     }
   });
+  const [directThermalPrint, setDirectThermalPrint] = useState(() => {
+    try {
+      return window.localStorage.getItem(DIRECT_THERMAL_SETTING_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
+  const [thermalPrinterName, setThermalPrinterName] = useState(() => {
+    try {
+      return (
+        window.localStorage.getItem(THERMAL_PRINTER_NAME_KEY) ||
+        DEFAULT_THERMAL_PRINTER_NAME
+      );
+    } catch {
+      return DEFAULT_THERMAL_PRINTER_NAME;
+    }
+  });
+  const [thermalChecking, setThermalChecking] = useState(false);
+  const [thermalStatus, setThermalStatus] = useState("");
   const [pendingAutoPrint, setPendingAutoPrint] = useState(false);
 
   const selectedServiceData = services.find((s) => s.id === selectedService);
+
+  useEffect(() => {
+    let active = true;
+    const token = window.localStorage.getItem("auth_token");
+
+    const redirectToLogin = () => {
+      window.localStorage.removeItem("auth_token");
+      window.localStorage.removeItem("officer_data");
+      navigate("/officer/login", { replace: true });
+    };
+
+    if (!token) {
+      redirectToLogin();
+      return () => {
+        active = false;
+      };
+    }
+
+    const verifyCsSession = async () => {
+      try {
+        const response = await fetch("/api/officer/me", {
+          headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.message || "Sesi login tidak valid.");
+        }
+
+        const officer = data.data?.officer;
+
+        if (officer?.role !== "CS") {
+          if (officer) {
+            window.localStorage.setItem("officer_data", JSON.stringify(officer));
+          }
+
+          navigate("/officer/dashboard", { replace: true });
+          return;
+        }
+
+        window.localStorage.setItem("officer_data", JSON.stringify(officer));
+
+        if (active) {
+          setAuthChecking(false);
+        }
+      } catch {
+        redirectToLogin();
+      }
+    };
+
+    verifyCsSession();
+
+    return () => {
+      active = false;
+    };
+  }, [navigate]);
 
   useEffect(() => {
     const loadServices = async () => {
@@ -181,7 +278,37 @@ export default function CsQueueInput() {
     }
   }, [autoPrintTicket]);
 
-  const handlePrintTicket = () => {
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        DIRECT_THERMAL_SETTING_KEY,
+        directThermalPrint ? "true" : "false"
+      );
+    } catch {
+      // Keep printing usable even when browser storage is unavailable.
+    }
+  }, [directThermalPrint]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        THERMAL_PRINTER_NAME_KEY,
+        thermalPrinterName.trim() || DEFAULT_THERMAL_PRINTER_NAME
+      );
+    } catch {
+      // Keep printing usable even when browser storage is unavailable.
+    }
+  }, [thermalPrinterName]);
+
+  const printWithBrowserDialog = (printContents: string) => {
+    const printStarted = printTicketMarkup(printContents);
+
+    if (!printStarted) {
+      setError("Gagal membuka dialog cetak. Coba tekan tombol Print Tiket.");
+    }
+  };
+
+  const handlePrintTicket = async () => {
     const printContents = document.getElementById("ticket-print")?.outerHTML;
 
     if (!printContents) {
@@ -189,10 +316,40 @@ export default function CsQueueInput() {
       return;
     }
 
-    const printStarted = printTicketMarkup(printContents);
+    if (directThermalPrint && result) {
+      try {
+        setError("");
+        setThermalStatus("");
+        await printThermalTicket(result, {
+          printerName: thermalPrinterName.trim() || DEFAULT_THERMAL_PRINTER_NAME,
+        });
+        setThermalStatus("Tiket terkirim ke printer thermal.");
+        return;
+      } catch (err: any) {
+        setError(
+          `${err.message || "Gagal print thermal langsung."} Membuka dialog cetak sebagai cadangan.`
+        );
+      }
+    }
 
-    if (!printStarted) {
-      setError("Gagal membuka dialog cetak. Coba tekan tombol Print Tiket.");
+    printWithBrowserDialog(printContents);
+  };
+
+  const handleTestThermalPrinter = async () => {
+    setError("");
+    setThermalStatus("");
+    setThermalChecking(true);
+
+    try {
+      const printer = await testThermalPrinterConnection(
+        thermalPrinterName.trim() || DEFAULT_THERMAL_PRINTER_NAME
+      );
+      setThermalPrinterName(printer);
+      setThermalStatus(`QZ Tray terhubung ke ${printer}.`);
+    } catch (err: any) {
+      setError(err.message || "Gagal mengecek printer thermal.");
+    } finally {
+      setThermalChecking(false);
     }
   };
 
@@ -202,7 +359,7 @@ export default function CsQueueInput() {
     }
 
     const timeoutId = window.setTimeout(() => {
-      handlePrintTicket();
+      void handlePrintTicket();
       setPendingAutoPrint(false);
     }, 350);
 
@@ -227,11 +384,18 @@ export default function CsQueueInput() {
     setLoading(true);
 
     try {
+      const token = window.localStorage.getItem("auth_token");
+
+      if (!token) {
+        throw new Error("Sesi login tidak ditemukan. Silakan login ulang.");
+      }
+
       const res = await fetch("/api/queue/generate", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Accept: "application/json",
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           service_category_id: selectedService,
@@ -241,6 +405,13 @@ export default function CsQueueInput() {
       });
 
       const data = await res.json();
+
+      if (res.status === 401 || res.status === 403) {
+        window.localStorage.removeItem("auth_token");
+        window.localStorage.removeItem("officer_data");
+        navigate("/officer/login", { replace: true });
+        return;
+      }
 
       if (!res.ok) {
         throw new Error(data.message || "Gagal membuat nomor antrian.");
@@ -260,9 +431,10 @@ export default function CsQueueInput() {
           year: "numeric",
         }),
         time: formatTimeWib(new Date()),
-        tracking_url:
-          data.data.queue.tracking_url ||
-          `${window.location.origin}/track/${data.data.queue.tracking_code}`,
+        tracking_url: buildTrackingUrl(
+          data.data.queue.tracking_code,
+          data.data.queue.tracking_url
+        ),
       };
 
       setResult(ticketData);
@@ -276,6 +448,39 @@ export default function CsQueueInput() {
       setLoading(false);
     }
   };
+
+  const handleLogout = async () => {
+    const token = window.localStorage.getItem("auth_token");
+
+    if (token) {
+      await fetch("/api/officer/logout", {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      }).catch(() => null);
+    }
+
+    window.localStorage.removeItem("auth_token");
+    window.localStorage.removeItem("officer_data");
+    navigate("/officer/login", { replace: true });
+  };
+
+  if (authChecking) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-surface">
+        <div className="rounded-2xl border border-outline-variant bg-surface-container-lowest px-6 py-5 text-center shadow-sm">
+          <p className="text-sm font-bold uppercase tracking-[0.18em] text-outline">
+            Memeriksa sesi
+          </p>
+          <p className="mt-2 text-lg font-black text-primary">
+            Mohon tunggu...
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-surface">
@@ -298,13 +503,24 @@ export default function CsQueueInput() {
             </div>
           </div>
 
-          <div className="text-right">
-            <p className="text-lg font-black text-primary">
-              {formatTimeWib(new Date())}
-            </p>
-            <p className="text-xs font-semibold text-outline">
-              {formatDateWib(new Date())}
-            </p>
+          <div className="flex items-center gap-4">
+            <div className="text-right">
+              <p className="text-lg font-black text-primary">
+                {formatTimeWib(new Date())}
+              </p>
+              <p className="text-xs font-semibold text-outline">
+                {formatDateWib(new Date())}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="inline-flex items-center gap-2 rounded-xl border border-outline-variant px-4 py-3 text-sm font-bold text-primary transition hover:bg-surface-container-low"
+            >
+              <LogOut className="h-4 w-4" />
+              Logout
+            </button>
           </div>
         </div>
       </header>
@@ -404,6 +620,57 @@ export default function CsQueueInput() {
                   </button>
                 );
               })}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-outline-variant bg-surface-container-lowest p-5 shadow-sm">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+              <div className="flex-1">
+                <label className="flex cursor-pointer items-center gap-3 text-sm font-bold text-primary">
+                  <input
+                    type="checkbox"
+                    checked={directThermalPrint}
+                    onChange={(event) =>
+                      setDirectThermalPrint(event.target.checked)
+                    }
+                    className="h-5 w-5 rounded border-outline-variant text-primary focus:ring-primary"
+                  />
+                  Cetak langsung thermal
+                </label>
+
+                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+                  <div>
+                    <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-outline">
+                      Printer
+                    </label>
+                    <input
+                      value={thermalPrinterName}
+                      onChange={(event) =>
+                        setThermalPrinterName(event.target.value)
+                      }
+                      disabled={!directThermalPrint}
+                      placeholder={DEFAULT_THERMAL_PRINTER_NAME}
+                      className="w-full rounded-xl border border-outline-variant px-4 py-3 text-sm font-semibold outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:bg-surface-container-low disabled:text-outline"
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleTestThermalPrinter}
+                    disabled={!directThermalPrint || thermalChecking}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-primary px-5 py-3 text-sm font-bold text-primary transition hover:bg-primary hover:text-white disabled:cursor-not-allowed disabled:border-outline-variant disabled:text-outline disabled:hover:bg-transparent"
+                  >
+                    <Printer className="h-4 w-4" />
+                    {thermalChecking ? "Mengecek..." : "Cek Printer"}
+                  </button>
+                </div>
+
+                {thermalStatus && (
+                  <p className="mt-3 rounded-xl bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">
+                    {thermalStatus}
+                  </p>
+                )}
+              </div>
             </div>
           </div>
 

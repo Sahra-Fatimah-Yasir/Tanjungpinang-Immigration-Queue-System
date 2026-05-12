@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Officer;
 use App\Notifications\OfficerAccountCreated;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -67,6 +68,56 @@ class OfficerController extends Controller
         ], 200);
     }
 
+    private function mailerCanSendToInbox(): bool
+    {
+        return ! in_array(config('mail.default'), ['log', 'array'], true);
+    }
+
+    /**
+     * @return array{email_sent: bool, email_delivery_failed: bool, email_not_configured: bool, email_missing: bool}
+     */
+    private function sendAccountEmail(Officer $officer, string $plainPassword): array
+    {
+        $result = [
+            'email_sent' => false,
+            'email_delivery_failed' => false,
+            'email_not_configured' => false,
+            'email_missing' => false,
+        ];
+
+        if (! $officer->email) {
+            $result['email_missing'] = true;
+
+            return $result;
+        }
+
+        if (! $this->mailerCanSendToInbox()) {
+            $result['email_not_configured'] = true;
+
+            return $result;
+        }
+
+        try {
+            $officer->notify(new OfficerAccountCreated(
+                $officer->nip,
+                $plainPassword,
+                $officer->role,
+            ));
+
+            $result['email_sent'] = true;
+        } catch (Throwable $exception) {
+            $result['email_delivery_failed'] = true;
+
+            Log::warning('Failed to send officer account email.', [
+                'officer_id' => $officer->id,
+                'email' => $officer->email,
+                'error' => $exception->getMessage(),
+            ]);
+        }
+
+        return $result;
+    }
+
     /**
      * Create new officer
      * 
@@ -78,7 +129,7 @@ class OfficerController extends Controller
         $request->validate([
             'nip' => 'required|string|size:18|unique:officers',
             'name' => 'required|string|max:255',
-            'email' => 'nullable|email|unique:officers',
+            'email' => 'required|email|unique:officers',
             'phone' => 'nullable|string|max:20',
             'password' => 'required|string|min:6|confirmed',
             'counter_id' => 'nullable|exists:counters,id',
@@ -96,32 +147,11 @@ class OfficerController extends Controller
             'role' => $request->role ?? 'OFFICER',
         ]);
 
-        $emailSent = false;
-        $emailDeliveryFailed = false;
-
-        if ($officer->email) {
-            try {
-                $officer->notify(new OfficerAccountCreated(
-                    $officer->nip,
-                    $request->password,
-                    $officer->role,
-                ));
-
-                $emailSent = true;
-            } catch (Throwable $exception) {
-                $emailDeliveryFailed = true;
-
-                Log::warning('Failed to send officer account email.', [
-                    'officer_id' => $officer->id,
-                    'email' => $officer->email,
-                    'error' => $exception->getMessage(),
-                ]);
-            }
-        }
+        $emailResult = $this->sendAccountEmail($officer, $request->password);
 
         return response()->json([
             'success' => true,
-            'message' => $emailSent
+            'message' => $emailResult['email_sent']
                 ? 'Petugas berhasil ditambahkan dan kredensial login sudah dikirim ke email.'
                 : 'Petugas berhasil ditambahkan. Kredensial login belum terkirim ke email.',
             'data' => [
@@ -132,8 +162,7 @@ class OfficerController extends Controller
                     'email' => $officer->email,
                     'role' => $officer->role,
                 ],
-                'email_sent' => $emailSent,
-                'email_delivery_failed' => $emailDeliveryFailed,
+                ...$emailResult,
             ],
         ], 201);
     }
@@ -150,15 +179,16 @@ class OfficerController extends Controller
         $officer = Officer::findOrFail($officerId);
 
         $request->validate([
+            'nip' => 'sometimes|string|size:18|unique:officers,nip,' . $officerId,
             'name' => 'sometimes|string|max:255',
-            'email' => 'sometimes|email|unique:officers,email,' . $officerId,
-            'phone' => 'sometimes|string|max:20',
+            'email' => 'sometimes|nullable|email|unique:officers,email,' . $officerId,
+            'phone' => 'sometimes|nullable|string|max:20',
             'counter_id' => 'sometimes|nullable|exists:counters,id',
             'status' => 'sometimes|in:ACTIVE,INACTIVE,ON_BREAK',
             'role' => 'sometimes|in:OFFICER,CS',
         ]);
 
-        $officer->update($request->only(['name', 'email', 'phone', 'counter_id', 'status', 'role']));
+        $officer->update($request->only(['nip', 'name', 'email', 'phone', 'counter_id', 'status', 'role']));
 
         return response()->json([
             'success' => true,
@@ -183,9 +213,14 @@ class OfficerController extends Controller
         $officer = Officer::findOrFail($officerId);
         $officer->update(['password' => Hash::make($request->password)]);
 
+        $emailResult = $this->sendAccountEmail($officer, $request->password);
+
         return response()->json([
             'success' => true,
-            'message' => 'Password petugas berhasil direset',
+            'message' => $emailResult['email_sent']
+                ? 'Password petugas berhasil direset dan dikirim ke email.'
+                : 'Password petugas berhasil direset. Email kredensial belum terkirim.',
+            'data' => $emailResult,
         ], 200);
     }
 
@@ -198,7 +233,12 @@ class OfficerController extends Controller
     public function destroy(int $officerId)
     {
         $officer = Officer::findOrFail($officerId);
-        $officer->delete();
+
+        DB::transaction(function () use ($officer): void {
+            $officer->tokens()->delete();
+            $officer->activities()->delete();
+            $officer->delete();
+        });
 
         return response()->json([
             'success' => true,

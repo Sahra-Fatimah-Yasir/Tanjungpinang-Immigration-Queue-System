@@ -35,7 +35,7 @@ class AdminAuthController extends Controller
         $admin->update(['last_login' => now()]);
 
         // Create API token (Sanctum)
-        $token = $admin->createToken('api-token')->plainTextToken;
+        $token = $admin->createToken('admin-api-token', ['admin'])->plainTextToken;
 
         return response()->json([
             'success' => true,
