@@ -7,68 +7,6 @@
 <a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
 </p>
 
-## Email Kredensial Officer
-
-Saat admin menambahkan officer dan field email diisi, sistem akan mengirim NIP dan password login ke email officer. Agar email benar-benar masuk inbox, atur SMTP di `.env`.
-
-Contoh Gmail SMTP:
-
-```env
-MAIL_MAILER=smtp
-MAIL_SCHEME=smtp
-MAIL_HOST=smtp.gmail.com
-MAIL_PORT=587
-MAIL_USERNAME=email-kantor@gmail.com
-MAIL_PASSWORD=app-password-google
-MAIL_FROM_ADDRESS=email-kantor@gmail.com
-MAIL_FROM_NAME="Sistem Antrian Imigrasi"
-```
-
-Setelah mengubah `.env`, jalankan:
-
-```bash
-php artisan config:clear
-php artisan cache:clear
-```
-
-Tes kirim email tanpa membuat officer baru:
-
-```bash
-php artisan mail:test-officer officer@example.com
-```
-
-## Checklist Production
-
-Sebelum hosting, salin `.env.example` menjadi `.env`, lalu isi nilai production yang sebenarnya:
-
-```bash
-APP_ENV=production
-APP_DEBUG=false
-APP_URL=https://domain-anda.go.id
-CORS_ALLOWED_ORIGINS=https://domain-anda.go.id
-SANCTUM_STATEFUL_DOMAINS=domain-anda.go.id
-```
-
-Langkah deploy dasar:
-
-```bash
-composer install --no-dev --optimize-autoloader
-npm ci
-npm run build
-php artisan key:generate --force
-php artisan migrate --force
-php artisan config:cache
-php artisan route:cache
-php artisan view:cache
-php artisan queue:work --tries=3
-```
-
-Catatan keamanan:
-
-- Jangan pakai akun seed `password123` di production.
-- Jangan commit `.env` atau credential SMTP asli.
-- Setelah credential pernah masuk repo, rotate password/app password di provider terkait.
-- Endpoint generate antrian hanya dapat dipakai akun CS, sementara endpoint admin hanya menerima token admin.
 
 ## About Laravel
 
